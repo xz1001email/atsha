@@ -12,7 +12,6 @@ else
 
 modules:
 	$(MAKE) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNELDIR) M=$(PWD) modules
-	cp atsha204.ko sign/atsha204_raw.ko
 	#这里还要给签名模块!
 clean:
 	@rm -rf *.o *.order *.symvers *.mod.* .*.o.cmd .*.mod.o.cmd .*.ko.cmd .tmp_versions *.ko

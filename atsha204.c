@@ -33,12 +33,13 @@ static ssize_t serial_number_show(struct device *dev,struct device_attribute *at
     return 0;
 }
 
-static ssize_t serial_number_store(struct device *dev,struct device_attribute *attr, const char* buf,size_t size)
+static ssize_t serial_number_store(struct device *dev, struct device_attribute *attr, const char* buf, size_t size)
 {
 	int retval = 0;
 	//int key_id = 2;
 
 	result = 0;
+	printk("get: %s\n", buf);
 
 	//retval = atsha204_device_personalization();
 	if (retval == 0)
@@ -106,6 +107,7 @@ static int sha204_probe(struct platform_device *dev)
 static int sha204_remove(struct platform_device *dev)
 {
 	//device_remove_file(&dev->dev,&dev_attr_SerialNumber);
+    sysfs_remove_group(&dev->dev.kobj, &m_als_gr);
 	return 0;
 }
 

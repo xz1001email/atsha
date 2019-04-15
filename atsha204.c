@@ -104,9 +104,15 @@ static int sha204_probe(struct platform_device *dev)
 	return 0;
 }
 
+static void sha204_device_release(struct device *dev)
+{
+    printk("sha204: device release\n");
+}
+
 static int sha204_remove(struct platform_device *dev)
 {
 	//device_remove_file(&dev->dev,&dev_attr_SerialNumber);
+	printk("remove sysfs devices ...\n");
     sysfs_remove_group(&dev->dev.kobj, &m_als_gr);
 	return 0;
 }
@@ -115,8 +121,9 @@ static struct platform_device sha204_device = {
 	.name = "sha204",
 	.id = 0,
 	.dev = {
-		.coherent_dma_mask = 0xffffffffUL	
-},
+        .coherent_dma_mask = 0xffffffffUL,	
+        .release = sha204_device_release
+    },
 };
 
 static struct platform_driver sha204_driver = {
@@ -145,6 +152,7 @@ static int __init sha204_init(void)
 
 static void __exit sha204_exit(void)
 {
+	printk("sha204 exit entry ...\n");
 	platform_device_unregister(&sha204_device);
 	platform_driver_unregister(&sha204_driver);
 }

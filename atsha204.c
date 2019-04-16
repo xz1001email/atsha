@@ -22,6 +22,12 @@
 #include <linux/i2c-mux-gpio.h>
 #include <linux/platform_device.h>
 
+#include<linux/i2c-dev.h>
+
+#define ATSHA204A_DEV_NAME        "msm_sha204" 
+#define ATSHA204A_DEVICE_ADDR     0x64
+//static struct i2c_board_info __initdata i2c_atsha204a ={ I2C_BOARD_INFO(ATSHA204A_DEV_NAME, (ATSHA204A_DEVICE_ADDR>>1)) };
+
 
 static int result = 0;
 static ssize_t serial_number_show(struct device *dev,struct device_attribute *attr,char* buf)
@@ -135,10 +141,48 @@ static struct platform_driver sha204_driver = {
 	.remove = sha204_remove,
 };
 
+
+static int msm_sha204_i2c_probe(struct i2c_client *client,
+			 const struct i2c_device_id *id)
+{
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		pr_err("%s i2c_check_functionality failed\n", __func__);
+        return -1;
+	}
+    printk("client addr = %x", client->addr);
+
+    return 0;
+}
+
+static int msm_sha204_i2c_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static const struct i2c_device_id msm_sha204_i2c_id[] = {
+	{ "msm_sha204", (kernel_ulong_t)NULL},
+	{ }
+};
+
+static struct i2c_driver msm_sha204_i2c_driver = {
+	.id_table = msm_sha204_i2c_id,
+	.probe  = msm_sha204_i2c_probe,
+	.remove = msm_sha204_i2c_remove,
+	.driver = {
+		.name = "msm_sha204",
+	},
+};
+
 static int __init sha204_init(void)
 {
 	int ret = 0;
+    //struct i2c_client* adap;
+
 	printk("sha204 init entry ...\n");
+    //ret = i2c_register_board_info(3, &i2c_atsha204a, 1);
+    //adap = i2c_get_adapter(0);
+    //i2c_new_device(adap, &i2c_atsha204a);
+
 	ret = platform_driver_register(&sha204_driver);
 	if (!ret)
 	{
@@ -147,7 +191,7 @@ static int __init sha204_init(void)
 			platform_driver_unregister(&sha204_driver);
 	}
 
-	return ret;
+	return i2c_add_driver(&msm_sha204_i2c_driver);
 }
 
 static void __exit sha204_exit(void)
@@ -155,6 +199,7 @@ static void __exit sha204_exit(void)
 	printk("sha204 exit entry ...\n");
 	platform_device_unregister(&sha204_device);
 	platform_driver_unregister(&sha204_driver);
+	i2c_del_driver(&msm_sha204_i2c_driver);
 }
 
 module_init(sha204_init);

@@ -31,6 +31,17 @@
 #define ATSHA204A_DEVICE_ADDR     0xC8
 //static struct i2c_board_info __initdata i2c_atsha204a ={ I2C_BOARD_INFO(ATSHA204A_DEV_NAME, (ATSHA204A_DEVICE_ADDR>>1)) };
 
+void printbuf(char *buf, int len)
+{
+    int i;
+    for(i=0; i<len; i++) {
+        if (i && i%16 == 0)
+            printk("\n");
+        printk("0x%x ", buf[i]);
+    }
+    printk("\n");
+}
+
 
 void SCL_out_low(void)
 {
@@ -3568,17 +3579,45 @@ uint8_t atsha204_slot02_personalization(void)
 	return sha204_lib_return;
 }
 
+static uint8_t sha204_read_sn(struct i2c_client *client)
+{
+    int ret = 0;
+    char buf[32] = {2, 0, 0, 0};
+    char recvbuf[32] = {0};
+
+    client->addr = 0x64;
+    buf[0] = 0x03; //word addr
+    buf[1] = 7; //count
+    buf[2] = 0x02;
+    buf[3] = 0x00;
+    buf[4] = 0x00;
+    buf[5] = 0x00;
+
+    sha204c_calculate_crc(buf[1]-2, &buf[1], &buf[6]);
+    ret = i2c_master_send(client, (const char *)buf, 8);
+    printk("i2c master send ret %d\n", ret);
+    if (ret > 0)
+        printbuf(buf, 8);
+
+    recvbuf[0] = 0x03;
+    ret = i2c_master_recv(client, recvbuf, 16);
+    printk("i2c master recv ret %d\n", ret);
+    if (ret > 0)
+        printbuf(recvbuf, ret);
+
+    return 0;
+}
 
 
 static uint8_t sha204_test(struct i2c_client *client)
 {
     int ret = 0;
-    const char buf[32] = {0};
+    char buf[32] = {2, 0, 0, 0};
     char recvbuf[32] = {0};
     client->addr = 0x0;
     printk("addr 0x%x\n", client->addr);
     printk("client adapter %p\n", client->adapter);
-    ret = i2c_master_send(client, buf, 1);
+    ret = i2c_master_send(client, (const char *)buf, 1);
     printk("i2c master send ret %d\n", ret);
 
     udelay(3000);
@@ -3586,6 +3625,27 @@ static uint8_t sha204_test(struct i2c_client *client)
     ret = i2c_master_recv(client, recvbuf, 4);
     printk("i2c master recv ret %d\n", ret);
     printk("recv: 0x%x 0x%x\n", recvbuf[0], recvbuf[1]);
+#if 0
+    client->addr = 0x64;
+    buf[0] = 0x03; //word addr
+    buf[1] = 7; //count
+    buf[2] = 0x02;
+    buf[3] = 0x00;
+    buf[4] = 0x00;
+    buf[5] = 0x00;
+
+    sha204c_calculate_crc(buf[1]-2, &buf[1], &buf[6]);
+    ret = i2c_master_send(client, (const char *)buf, 8);
+    printk("i2c master send ret %d\n", ret);
+    if (ret > 0)
+        printbuf(buf, 8);
+
+    recvbuf[0] = 0x03;
+    ret = i2c_master_recv(client, recvbuf, 5);
+    printk("i2c master recv ret %d\n", ret);
+    if (ret > 0)
+        printbuf(recvbuf, ret);
+#endif
     return 0;
 }
 
@@ -3710,6 +3770,7 @@ static int msm_sha204_i2c_probe(struct i2c_client *client,
     printk("client device addr = 0x%x\n", client->addr);
     
     sha204_test(client);
+    sha204_read_sn(client);
 
     return 0;
 }

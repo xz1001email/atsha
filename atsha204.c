@@ -31,13 +31,16 @@
 #define ATSHA204A_DEVICE_ADDR     0xC8
 //static struct i2c_board_info __initdata i2c_atsha204a ={ I2C_BOARD_INFO(ATSHA204A_DEV_NAME, (ATSHA204A_DEVICE_ADDR>>1)) };
 
+
+struct i2c_client local_client;
+
 void printbuf(char *buf, int len)
 {
     int i;
     for(i=0; i<len; i++) {
         if (i && i%16 == 0)
             printk("\n");
-        printk("0x%x ", buf[i]);
+        printk("0x%02x ", buf[i]);
     }
     printk("\n");
 }
@@ -302,20 +305,6 @@ void sha204p_set_device_id(uint8_t id)
  */
 uint8_t sha204p_wakeup(void)
 {
-	uint8_t dummy_byte = 0;
-	
-	software_IIC_start();
-	
-	//udelay(10 * SHA204_WAKEUP_PULSE_WIDTH);
-	//delay_10us(SHA204_WAKEUP_PULSE_WIDTH);//60us
-
-	(void)i2c_send_bytes(1,&dummy_byte);
-
-	software_IIC_stop();
-
-	mdelay(SHA204_WAKEUP_DELAY);
-	//delay_ms(SHA204_WAKEUP_DELAY);
-
 	return SHA204_SUCCESS;
 }
 
@@ -348,36 +337,20 @@ uint8_t sha204p_send_slave_address(uint8_t read_write)
  */
 static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
 {
-	uint8_t i2c_status = sha204p_send_slave_address(I2C_WRITE);
-	if(i2c_status != I2C_FUNCTION_RETCODE_SUCCESS)
-	{
-		software_IIC_stop();
-		return SHA204_COMM_FAIL;
-	}
+    struct i2c_client *client = &local_client;
+    int ret = 0;
+    char buf[64] = {0};
+    client->addr = 0x64;
+    buf[0] = word_address; //word addr
+    memcpy(&buf[1], buffer, count);
+    ret = i2c_master_send(client, (const char *)buf, count+1);
+    printk("send cmd ret %d\n", ret);
+    printbuf(buf, ret);
 
-	i2c_status = i2c_send_bytes(1,&word_address);
-	if(i2c_status != I2C_FUNCTION_RETCODE_SUCCESS)
-	{
-		return SHA204_COMM_FAIL;
-	}	
-
-	if(0 == count)
-	{	// We are done for packets that are not commands (Sleep, Idle, Reset).
-		software_IIC_stop();
-		return SHA204_SUCCESS;
-	}
-
-	i2c_status = i2c_send_bytes(count,buffer);
-	
-	software_IIC_stop();
-	
-	if(i2c_status != I2C_FUNCTION_RETCODE_SUCCESS)
-	{
-		return SHA204_COMM_FAIL;
-	}	
-
-	
-	return SHA204_SUCCESS;
+    if (ret == count+1)
+        return SHA204_SUCCESS;
+    else
+        return SHA204_COMM_FAIL;
 }
 
 
@@ -432,36 +405,27 @@ uint8_t sha204p_reset_io(void)
 uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 {
 	uint8_t count = 0;
-	// Address the device and indicate that bytes are to be read.
-	uint8_t i2c_status = sha204p_send_slave_address(I2C_READ);
-	if(i2c_status != I2C_FUNCTION_RETCODE_SUCCESS)
-	{
+    struct i2c_client *client = &local_client;
+    int ret = 0;
+    client->addr = 0x64;
+    ret = i2c_master_recv(client, response, 1);
+    printk("i2c recv ret %d\n", ret);
+    if (ret < 0)
 		return SHA204_COMM_FAIL;
-	}
 
-	// Receive count byte.
-	i2c_status = i2c_receive_byte(response);
-	if(i2c_status != I2C_FUNCTION_RETCODE_SUCCESS)
-	{
+    count = response[0];
+    printk("i2c recv frame len %d\n", count);
+    if ((count < SHA204_RSP_SIZE_MIN) || (count > size)) {
+        return SHA204_INVALID_SIZE;
+    }
+    client->addr = 0x64;
+    ret = i2c_master_recv(client, &response[1], count);
+    printk("i2c recv ret %d\n", ret);
+    if (ret < 0)
 		return SHA204_COMM_FAIL;
-	}
 
-	count = response[SHA204_BUFFER_POS_COUNT];
-
-	if ((count < SHA204_RSP_SIZE_MIN) || (count > size))
-	{
-		return SHA204_INVALID_SIZE;
-	}
-
-	i2c_status = i2c_receive_bytes(count - 1, &response[SHA204_BUFFER_POS_DATA]);
-	if (i2c_status != I2C_FUNCTION_RETCODE_SUCCESS)
-	{
-		return SHA204_COMM_FAIL;
-	}
-	else
-	{
-		return SHA204_SUCCESS;	
-	}
+    printbuf(response, ret);
+    return SHA204_SUCCESS;	
 }
 
 /** 
@@ -1321,6 +1285,7 @@ uint8_t sha204c_check_crc(uint8_t *response)
  *  \param[out] response pointer to four-byte response
  *  \return status of the operation
  */
+#if 0
 uint8_t sha204c_wakeup(uint8_t *response)
 {
 	uint8_t ret_code = sha204p_wakeup();
@@ -1347,6 +1312,35 @@ uint8_t sha204c_wakeup(uint8_t *response)
 		
 	return ret_code;
 }
+#else
+uint8_t sha204c_wakeup(uint8_t *response)
+{
+        return SHA204_SUCCESS;
+#if 0
+    struct i2c_client *client = &local_client;
+    int ret = 0;
+    char buf[32] = {2, 0, 0, 0};
+    char recvbuf[32] = {0};
+    client->addr = 0x0;
+    printk("addr 0x%x\n", client->addr);
+    printk("client adapter %p\n", client->adapter);
+    ret = i2c_master_send(client, (const char *)buf, 1);
+    printk("i2c master send ret %d\n", ret);
+
+    udelay(3000);
+    client->addr = 0x64;
+    ret = i2c_master_recv(client, recvbuf, 4);
+    printk("i2c master recv ret %d\n", ret);
+    printk("recv: 0x%x 0x%x\n", recvbuf[0], recvbuf[1]);
+
+    if (recvbuf[0] == 0x04 && recvbuf[1] == 0x11) {
+        return SHA204_SUCCESS;
+    }
+
+    return SHA204_COMM_FAIL;
+#endif
+}
+#endif
 
 
 /** \brief This function re-synchronizes communication.
@@ -1375,6 +1369,8 @@ uint8_t sha204c_wakeup(uint8_t *response)
  */
 uint8_t sha204c_resync(uint8_t size, uint8_t *response)
 {
+    return SHA204_RESYNC_WITH_WAKEUP;
+#if 0
 	// Try to re-synchronize without sending a Wake token
 	// (step 1 of the re-synchronization process).
 	uint8_t ret_code = sha204p_resync(size, response);
@@ -1391,6 +1387,7 @@ uint8_t sha204c_resync(uint8_t size, uint8_t *response)
 	// that indicates that the device had to be woken up
 	// and might have lost its TempKey.
 	return (ret_code == SHA204_SUCCESS ? SHA204_RESYNC_WITH_WAKEUP : ret_code);
+#endif
 }
 
 
@@ -3268,6 +3265,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	nonce_parameters.num_in = NumIn;
 	
 	sha204_lib_return |= sha204m_nonce(&nonce_parameters);
+    return 0;
 
 	//-----------tony comment:MCU side operate------
 	//tony comment: MAC step 3-----MCU side calculate tempkey
@@ -3595,57 +3593,35 @@ static uint8_t sha204_read_sn(struct i2c_client *client)
 
     sha204c_calculate_crc(buf[1]-2, &buf[1], &buf[6]);
     ret = i2c_master_send(client, (const char *)buf, 8);
-    printk("i2c master send ret %d\n", ret);
-    if (ret > 0)
-        printbuf(buf, 8);
+    printk("send read sn cmd %d\n", ret);
+    printbuf(buf, 8);
 
-    recvbuf[0] = 0x03;
-    ret = i2c_master_recv(client, recvbuf, 16);
-    printk("i2c master recv ret %d\n", ret);
+    //recvbuf[0] = 0x03;
+    ret = i2c_master_recv(client, recvbuf, 7);
+    printk("recv sn ret %d\n", ret);
     if (ret > 0)
         printbuf(recvbuf, ret);
 
     return 0;
 }
 
-
-static uint8_t sha204_test(struct i2c_client *client)
+static uint8_t sha204_wakeup(struct i2c_client *client)
 {
     int ret = 0;
     char buf[32] = {2, 0, 0, 0};
     char recvbuf[32] = {0};
     client->addr = 0x0;
-    printk("addr 0x%x\n", client->addr);
+    printk("wakeup addr 0x%x\n", client->addr);
     printk("client adapter %p\n", client->adapter);
     ret = i2c_master_send(client, (const char *)buf, 1);
-    printk("i2c master send ret %d\n", ret);
+    printk("wakeup ret %d\n", ret);
 
     udelay(3000);
     client->addr = 0x64;
     ret = i2c_master_recv(client, recvbuf, 4);
-    printk("i2c master recv ret %d\n", ret);
-    printk("recv: 0x%x 0x%x\n", recvbuf[0], recvbuf[1]);
-#if 0
-    client->addr = 0x64;
-    buf[0] = 0x03; //word addr
-    buf[1] = 7; //count
-    buf[2] = 0x02;
-    buf[3] = 0x00;
-    buf[4] = 0x00;
-    buf[5] = 0x00;
-
-    sha204c_calculate_crc(buf[1]-2, &buf[1], &buf[6]);
-    ret = i2c_master_send(client, (const char *)buf, 8);
-    printk("i2c master send ret %d\n", ret);
-    if (ret > 0)
-        printbuf(buf, 8);
-
-    recvbuf[0] = 0x03;
-    ret = i2c_master_recv(client, recvbuf, 5);
-    printk("i2c master recv ret %d\n", ret);
+    printk("recv wakeup ret %d\n", ret);
     if (ret > 0)
         printbuf(recvbuf, ret);
-#endif
     return 0;
 }
 
@@ -3687,6 +3663,37 @@ static struct attribute_group serialNum = {
 	.attrs = mid_att_als
 };
 
+#if 1
+static int sha204_command(void)
+{
+	int retval;
+	int key_id = 2;
+	//we need use key_id 2, if not,reset!
+	char key[] = {0x14, 0x15, 0x63, 0x37, 0x28, 0x45, 0x73, 0x94, 0x51, 0x34,
+				 0x61, 0x92, 0x79, 0x3b, 0xec, 0xc4, 0x29, 0xfc, 0xdf, 0x7d,
+				 0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x53, 0x8e,
+				 0xe1, 0xd3};
+	
+	char num_in[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
+				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20};
+
+	char challenge[] = {0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6,
+						0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
+						0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x23, 0x8e,
+						0xe1, 0xd3};
+						
+	retval = atsha204_mac(key_id, key, num_in, challenge);
+	printk("sha204_mac retval = %d\n", retval);
+	if (retval != 0)
+	{
+		//reset  
+		printk("sha204_module reset ...\n");
+		//mub_update1(0x0101, 0x05);	
+	}
+
+	return 0;
+}
+#endif
 static int sha204_probe(struct platform_device *dev)
 {
     int res;
@@ -3768,9 +3775,15 @@ static int msm_sha204_i2c_probe(struct i2c_client *client,
         return -1;
 	}
     printk("client device addr = 0x%x\n", client->addr);
+ 
     
-    sha204_test(client);
+    memcpy(&local_client, client, sizeof(struct i2c_client));
+
+    sha204_wakeup(client);
     sha204_read_sn(client);
+	udelay(10000);
+    //sha204_nonce(client);
+    sha204_command();
 
     return 0;
 }

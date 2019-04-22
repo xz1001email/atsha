@@ -305,6 +305,27 @@ void sha204p_set_device_id(uint8_t id)
  */
 uint8_t sha204p_wakeup(void)
 {
+    struct i2c_client *client = &local_client;
+    int ret = 0;
+    char buf[32] = {2, 0, 0, 0};
+    char recvbuf[32] = {0};
+    client->addr = 0x0;
+    printk("wakeup addr 0x%x\n", client->addr);
+    printk("client adapter %p\n", client->adapter);
+    ret = i2c_master_send(client, (const char *)buf, 1);
+    printk("send wakeup ret %d\n", ret);
+
+    udelay(3000);
+    client->addr = 0x64;
+    ret = i2c_master_recv(client, recvbuf, 4);
+    printk("recv wakeup ret %d\n", ret);
+    if (ret > 0) {
+        printbuf(recvbuf, ret);
+        if (recvbuf[1] == 0x11) {
+            printk("wakeup ok\n");
+        }
+
+    }
 	return SHA204_SUCCESS;
 }
 
@@ -419,12 +440,15 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
         return SHA204_INVALID_SIZE;
     }
     client->addr = 0x64;
-    ret = i2c_master_recv(client, &response[1], count);
-    printk("i2c recv ret %d\n", ret);
-    if (ret < 0)
+    ret = i2c_master_recv(client, &response[1], count-1);
+    if (ret == count-1) {
+        printk("i2c recv data success:\n");
+        printbuf(response, count);
+        return SHA204_SUCCESS;	
+    } else {
+        printk("i2c recv data fail\n");
 		return SHA204_COMM_FAIL;
-
-    printbuf(response, ret);
+    }
     return SHA204_SUCCESS;	
 }
 
@@ -1315,7 +1339,8 @@ uint8_t sha204c_wakeup(uint8_t *response)
 #else
 uint8_t sha204c_wakeup(uint8_t *response)
 {
-        return SHA204_SUCCESS;
+    return sha204p_wakeup();
+    //return SHA204_SUCCESS;
 #if 0
     struct i2c_client *client = &local_client;
     int ret = 0;
@@ -1325,12 +1350,12 @@ uint8_t sha204c_wakeup(uint8_t *response)
     printk("addr 0x%x\n", client->addr);
     printk("client adapter %p\n", client->adapter);
     ret = i2c_master_send(client, (const char *)buf, 1);
-    printk("i2c master send ret %d\n", ret);
+    printk("send wakeup ret %d\n", ret);
 
     udelay(3000);
     client->addr = 0x64;
     ret = i2c_master_recv(client, recvbuf, 4);
-    printk("i2c master recv ret %d\n", ret);
+    printk("recv wakeup ret %d\n", ret);
     printk("recv: 0x%x 0x%x\n", recvbuf[0], recvbuf[1]);
 
     if (recvbuf[0] == 0x04 && recvbuf[1] == 0x11) {
@@ -3249,7 +3274,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//sha204_lib_return |= atsha204_wakeup_and_validate_device();
 	sha204_lib_return |= sha204c_wakeup(wakeup_response_buffer);
 	
-	sha204_lib_return |= sha204p_wakeup();
+	//sha204_lib_return |= sha204p_wakeup();
 	if(SHA204_SUCCESS!=sha204_lib_return)
 	{
 		printk("sha204 wakeup failed\n");
@@ -3265,7 +3290,6 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	nonce_parameters.num_in = NumIn;
 	
 	sha204_lib_return |= sha204m_nonce(&nonce_parameters);
-    return 0;
 
 	//-----------tony comment:MCU side operate------
 	//tony comment: MAC step 3-----MCU side calculate tempkey
@@ -3605,26 +3629,6 @@ static uint8_t sha204_read_sn(struct i2c_client *client)
     return 0;
 }
 
-static uint8_t sha204_wakeup(struct i2c_client *client)
-{
-    int ret = 0;
-    char buf[32] = {2, 0, 0, 0};
-    char recvbuf[32] = {0};
-    client->addr = 0x0;
-    printk("wakeup addr 0x%x\n", client->addr);
-    printk("client adapter %p\n", client->adapter);
-    ret = i2c_master_send(client, (const char *)buf, 1);
-    printk("wakeup ret %d\n", ret);
-
-    udelay(3000);
-    client->addr = 0x64;
-    ret = i2c_master_recv(client, recvbuf, 4);
-    printk("recv wakeup ret %d\n", ret);
-    if (ret > 0)
-        printbuf(recvbuf, ret);
-    return 0;
-}
-
 static int result = 0;
 static ssize_t serial_number_show(struct device *dev,struct device_attribute *attr,char* buf)
 {
@@ -3779,9 +3783,9 @@ static int msm_sha204_i2c_probe(struct i2c_client *client,
     
     memcpy(&local_client, client, sizeof(struct i2c_client));
 
-    sha204_wakeup(client);
+    sha204p_wakeup();
     sha204_read_sn(client);
-	udelay(10000);
+	udelay(30000);
     //sha204_nonce(client);
     sha204_command();
 

@@ -3646,8 +3646,7 @@ static ssize_t serial_number_store(struct device *dev, struct device_attribute *
 
 	result = 0;
 	printk("get: %s\n", buf);
-
-	//retval = atsha204_device_personalization();
+	retval = atsha204_device_personalization();
 	if (retval == 0)
 		result = 1;
 
@@ -3785,7 +3784,8 @@ static int msm_sha204_i2c_probe(struct i2c_client *client,
 
     sha204p_wakeup();
     sha204_read_sn(client);
-	udelay(30000);
+	//udelay(30000);
+    mdelay(30);
     //sha204_nonce(client);
     sha204_command();
 

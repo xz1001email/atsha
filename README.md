@@ -19,3 +19,15 @@ recv: count + data + crc
 
 address counter:
 
+
+nonce: produce random, and combine input-num and other info, do digest, store in tempkey
+
+tempkey: hash of info below
+32  bytes RandOut
+20  bytes NumIn from input stream
+1   byte Opcode (always 0x16)
+1   byte Mode
+1   byte LSb of Param2 (should always be 0x00)
+
+
+

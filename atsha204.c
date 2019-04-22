@@ -1888,6 +1888,11 @@ uint8_t sha204h_nonce(struct sha204h_nonce_in_out param)
 		*p_temp++ = 0x00;
 			
 		sha256(temporary, SHA204_MSG_SIZE_NONCE, param.temp_key->value);
+        printk("host do nonce:\n");
+        printbuf(temporary, SHA204_MSG_SIZE_NONCE);
+        printk("host get tempkey:\n");
+        printbuf(param.temp_key->value, 32);
+
 		
 		// Update TempKey.SourceFlag to 0 (random)
 		param.temp_key->source_flag = 0;
@@ -2024,6 +2029,8 @@ uint8_t sha204h_mac(struct sha204h_mac_in_out param)
 	
 	// This is the resulting MAC digest
 	sha256(temporary, SHA204_MSG_SIZE_MAC, param.response);
+    printk("host do digest:\n");
+    printbuf(temporary, SHA204_MSG_SIZE_MAC);
 	
 	// Update TempKey fields
 	param.temp_key->valid = 0;
@@ -3256,7 +3263,6 @@ uint8_t atsha204_enc_read(uint16_t slot_to_read, uint8_t* clear_data, uint16_t k
 //************************************
 uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_t* challenge) 
 {
-	int i;
 	static uint8_t sha204_lib_return = SHA204_SUCCESS;			//!< Function execution status, initialized to SUCCES and bitmasked with error codes as needed.
 	uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];	//!< Transmit data buffer
 	uint8_t response_buffer[SHA204_RSP_SIZE_MAX];	//!< Receive data buffer
@@ -3327,13 +3333,10 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	mac_param.temp_key = &tempkey;
 	sha204_lib_return |= sha204h_mac(mac_param);
 	
-#if 1
-	for (i = 0; i < 32; i++)
-	{
-		printk("soft_digest[%d] = %x, response_buffer[%d] = %x\n", i, soft_digest[i], i, response_buffer[1 + i]);
-	}
-#endif
-	
+    printk("host digest:\n");
+    printbuf(soft_digest, sizeof(soft_digest));
+    printk("atsha204 digest:\n");
+    printbuf(&response_buffer[1], 32);
 	
 	//-----------tony comment:ATSHA204 side operate------
 	//tony comment: MAC step 6-----MCU MAC
@@ -3785,7 +3788,7 @@ static int msm_sha204_i2c_probe(struct i2c_client *client,
     sha204p_wakeup();
     sha204_read_sn(client);
 	//udelay(30000);
-    mdelay(30);
+    mdelay(60);
     //sha204_nonce(client);
     sha204_command();
 

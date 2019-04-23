@@ -3295,6 +3295,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	nonce_parameters.tx_buffer = transmit_buffer;
 	nonce_parameters.rx_buffer = response_buffer;
 	nonce_parameters.mode = NONCE_MODE_PASSTHROUGH;
+	nonce_parameters.mode = NONCE_MODE_NO_SEED_UPDATE;
 	nonce_parameters.num_in = NumIn;
 	
 	sha204_lib_return |= sha204m_nonce(&nonce_parameters);
@@ -3304,6 +3305,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Initialize parameter for helper function
 	// Initialize parameter for helper function
 	nonce_param.mode = NONCE_MODE_PASSTHROUGH;
+	nonce_param.mode = NONCE_MODE_NO_SEED_UPDATE;
 	nonce_param.num_in = NumIn;	
 	nonce_param.rand_out = &response_buffer[1];	
 	nonce_param.temp_key = &tempkey;
@@ -3315,7 +3317,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Execute the MAC command which constitutes sending a challenge. Successful execution will yield a result that contains the "Challenge Response" to be validated later in this function.
 	mac.mode = MAC_MODE_BLOCK2_TEMPKEY;
 	mac.mode |= MAC_MODE_BLOCK1_TEMPKEY;
-	mac.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
+	//mac.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
 	mac.key_id = key_id;
 	mac.challenge = challenge;
 	mac.tx_buffer = transmit_buffer;
@@ -3329,7 +3331,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//mac_param.mode = MAC_MODE_BLOCK1_TEMPKEY|MAC_MODE_BLOCK2_TEMPKEY;
 	mac_param.mode = MAC_MODE_BLOCK2_TEMPKEY;
 	mac_param.mode |= MAC_MODE_BLOCK1_TEMPKEY;
-	mac_param.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
+	//mac_param.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
 	mac_param.key_id = key_id;
 	mac_param.challenge = challenge;
 	mac_param.key = secret_key;

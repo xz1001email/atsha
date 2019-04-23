@@ -3294,7 +3294,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Execute the nonce command - precedes all MAC commands.
 	nonce_parameters.tx_buffer = transmit_buffer;
 	nonce_parameters.rx_buffer = response_buffer;
-	nonce_parameters.mode = NONCE_MODE_NO_SEED_UPDATE;
+	nonce_parameters.mode = NONCE_MODE_PASSTHROUGH;
 	nonce_parameters.num_in = NumIn;
 	
 	sha204_lib_return |= sha204m_nonce(&nonce_parameters);
@@ -3303,7 +3303,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//tony comment: MAC step 3-----MCU side calculate tempkey
 	// Initialize parameter for helper function
 	// Initialize parameter for helper function
-	nonce_param.mode = NONCE_MODE_NO_SEED_UPDATE;
+	nonce_param.mode = NONCE_MODE_PASSTHROUGH;
 	nonce_param.num_in = NumIn;	
 	nonce_param.rand_out = &response_buffer[1];	
 	nonce_param.temp_key = &tempkey;
@@ -3315,6 +3315,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Execute the MAC command which constitutes sending a challenge. Successful execution will yield a result that contains the "Challenge Response" to be validated later in this function.
 	mac.mode = MAC_MODE_BLOCK2_TEMPKEY;
 	mac.mode |= MAC_MODE_BLOCK1_TEMPKEY;
+	mac.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
 	mac.key_id = key_id;
 	mac.challenge = challenge;
 	mac.tx_buffer = transmit_buffer;
@@ -3328,6 +3329,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//mac_param.mode = MAC_MODE_BLOCK1_TEMPKEY|MAC_MODE_BLOCK2_TEMPKEY;
 	mac_param.mode = MAC_MODE_BLOCK2_TEMPKEY;
 	mac_param.mode |= MAC_MODE_BLOCK1_TEMPKEY;
+	mac_param.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
 	mac_param.key_id = key_id;
 	mac_param.challenge = challenge;
 	mac_param.key = secret_key;
@@ -3732,10 +3734,15 @@ static int sha204_command(void)
 				 0x61, 0x92, 0x79, 0x3b, 0xec, 0xc4, 0x29, 0xfc, 0xdf, 0x7d,
 				 0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x53, 0x8e,
 				 0xe1, 0xd3};
-	
+#if 0
 	char num_in[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
 				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20};
-
+#else
+	char num_in[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
+				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20,
+				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20,
+				     0x11, 0x12};
+#endif
 	char challenge[] = {0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6,
 						0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
 						0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x23, 0x8e,

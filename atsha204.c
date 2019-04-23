@@ -3316,7 +3316,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//tony comment: MAC step 4-----ATSHA204 MAC
 	// Execute the MAC command which constitutes sending a challenge. Successful execution will yield a result that contains the "Challenge Response" to be validated later in this function.
 	mac.mode = MAC_MODE_BLOCK2_TEMPKEY;
-	mac.mode |= MAC_MODE_BLOCK1_TEMPKEY;
+	//mac.mode |= MAC_MODE_BLOCK1_TEMPKEY;
 	//mac.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
 	mac.key_id = key_id;
 	mac.challenge = challenge;
@@ -3330,7 +3330,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Collect required information needed by a host system to calculate the expected challenge response in software, then perform the calculation.
 	//mac_param.mode = MAC_MODE_BLOCK1_TEMPKEY|MAC_MODE_BLOCK2_TEMPKEY;
 	mac_param.mode = MAC_MODE_BLOCK2_TEMPKEY;
-	mac_param.mode |= MAC_MODE_BLOCK1_TEMPKEY;
+	//mac_param.mode |= MAC_MODE_BLOCK1_TEMPKEY;
 	//mac_param.mode |= MAC_MODE_SOURCE_FLAG_MATCH;
 	mac_param.key_id = key_id;
 	mac_param.challenge = challenge;

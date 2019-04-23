@@ -22,17 +22,19 @@
 #include <linux/i2c-mux-gpio.h>
 #include <linux/platform_device.h>
 
-#include<linux/i2c-dev.h>
+//#include<linux/i2c-dev.h>
 
 #include "sha204.h"
 
 #define ATSHA204A_DEV_NAME        "msm_sha204" 
 //#define ATSHA204A_DEVICE_ADDR     0x64
-#define ATSHA204A_DEVICE_ADDR     0xC8
-//static struct i2c_board_info __initdata i2c_atsha204a ={ I2C_BOARD_INFO(ATSHA204A_DEV_NAME, (ATSHA204A_DEVICE_ADDR>>1)) };
+#define ATSHA204A_DEVICE_ADDR       0xC8
 
+static struct i2c_board_info i2c_atsha204a ={ I2C_BOARD_INFO(ATSHA204A_DEV_NAME, (ATSHA204A_DEVICE_ADDR>>1)) };
+//int probe_fail;
+int i2c_fail;
 
-struct i2c_client local_client;
+struct i2c_client *gclient = NULL;
 
 void printbuf(char *buf, int len)
 {
@@ -305,7 +307,7 @@ void sha204p_set_device_id(uint8_t id)
  */
 uint8_t sha204p_wakeup(void)
 {
-    struct i2c_client *client = &local_client;
+    struct i2c_client *client = gclient;
     int ret = 0;
     char buf[32] = {2, 0, 0, 0};
     char recvbuf[32] = {0};
@@ -358,7 +360,7 @@ uint8_t sha204p_send_slave_address(uint8_t read_write)
  */
 static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
 {
-    struct i2c_client *client = &local_client;
+    struct i2c_client *client = gclient;
     int ret = 0;
     char buf[64] = {0};
     client->addr = 0x64;
@@ -426,7 +428,7 @@ uint8_t sha204p_reset_io(void)
 uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 {
 	uint8_t count = 0;
-    struct i2c_client *client = &local_client;
+    struct i2c_client *client = gclient;
     int ret = 1;
     client->addr = 0x64;
     ret = i2c_master_recv(client, response, 1);
@@ -1342,7 +1344,7 @@ uint8_t sha204c_wakeup(uint8_t *response)
     return sha204p_wakeup();
     //return SHA204_SUCCESS;
 #if 0
-    struct i2c_client *client = &local_client;
+    struct i2c_client *client = gclient;
     int ret = 0;
     char buf[32] = {2, 0, 0, 0};
     char recvbuf[32] = {0};
@@ -3618,7 +3620,7 @@ uint8_t atsha204_slot02_personalization(void)
 #define TYPE_OPT        2
 static uint8_t sha204_read(int param1, int block, int offset)
 {
-    struct i2c_client *client = &local_client;
+    struct i2c_client *client = gclient;
     int ret = 0;
     char buf[32] = {2, 0, 0, 0};
     char response[64] = {0};
@@ -3661,8 +3663,9 @@ static uint8_t sha204_read(int param1, int block, int offset)
 }
 
 
-static uint8_t sha204_read_sn(struct i2c_client *client)
+static uint8_t sha204_read_sn(void)
 {
+    struct i2c_client *client = gclient;
     int ret = 0;
     char buf[32] = {2, 0, 0, 0};
     char recvbuf[32] = {0};
@@ -3689,44 +3692,6 @@ static uint8_t sha204_read_sn(struct i2c_client *client)
     return 0;
 }
 
-static int result = 0;
-static ssize_t serial_number_show(struct device *dev,struct device_attribute *attr,char* buf)
-{
-	if (result)
-		return sprintf(buf,"%s\n", "success!");
-	else
-		return sprintf(buf,"%s\n", "fail!");
-    return 0;
-}
-
-static ssize_t serial_number_store(struct device *dev, struct device_attribute *attr, const char* buf, size_t size)
-{
-	int retval = 0;
-	//int key_id = 2;
-
-	result = 0;
-	printk("get: %s\n", buf);
-	retval = atsha204_device_personalization();
-	if (retval == 0)
-		result = 1;
-
-	return size;
-}
-//static DEVICE_ATTR(SerialNumber, 0666, serial_number_show, serial_number_store);
-static DEVICE_ATTR(atsha204a, S_IRUGO | S_IWUSR, serial_number_show, serial_number_store);
-
-static struct attribute *mid_att_als[] = {
-	&dev_attr_atsha204a.attr,
-	//&dev_attr_lux0_input.attr,
-	NULL
-};
-
-static struct attribute_group serialNum = {
-	.name = "crypto-dev",
-	.attrs = mid_att_als
-};
-
-#if 1
 static int sha204_command(void)
 {
 	int retval;
@@ -3761,7 +3726,134 @@ static int sha204_command(void)
 
 	return 0;
 }
+
+static int result = 0;
+static ssize_t serial_number_show(struct device *dev,struct device_attribute *attr,char* buf)
+{
+    sha204_read_sn();
+    mdelay(60);
+    sha204_command();
+
+	if (result)
+		return sprintf(buf,"%s\n", "success!");
+	else
+		return sprintf(buf,"%s\n", "fail!");
+    return 0;
+}
+
+static ssize_t serial_number_store(struct device *dev, struct device_attribute *attr, const char* buf, size_t size)
+{
+	int retval = 0;
+	//int key_id = 2;
+
+	result = 0;
+	printk("get: %s\n", buf);
+	retval = atsha204_device_personalization();
+	if (retval == 0)
+		result = 1;
+
+	return size;
+}
+//static DEVICE_ATTR(SerialNumber, 0666, serial_number_show, serial_number_store);
+static DEVICE_ATTR(atsha204a, S_IRUGO | S_IWUSR, serial_number_show, serial_number_store);
+
+static struct attribute *mid_att_als[] = {
+	&dev_attr_atsha204a.attr,
+	//&dev_attr_lux0_input.attr,
+	NULL
+};
+
+static struct attribute_group serialNum = {
+	.name = "crypto-dev",
+	.attrs = mid_att_als
+};
+
+
+static int msm_sha204_i2c_probe(struct i2c_client *client,
+			 const struct i2c_device_id *id)
+{
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		pr_err("%s i2c_check_functionality failed\n", __func__);
+        return -1;
+	}
+    printk("client device addr = 0x%x\n", client->addr);
+
+    sha204p_wakeup();
+    sha204_read_sn();
+#if 0
+    sha204_read(TYPE_CONFIG, 0, 0);
+    sha204_read(TYPE_CONFIG, 0, 1);
+    sha204_read(TYPE_CONFIG, 0, 2);
+    sha204_read(TYPE_CONFIG, 0, 3);
+    sha204_read(TYPE_CONFIG, 0, 4);
+    sha204_read(TYPE_CONFIG, 0, 5);
+    sha204_read(TYPE_CONFIG, 0, 6);
+    sha204_read(TYPE_CONFIG, 0, 7);
+    sha204_read(TYPE_CONFIG, 1, 0);
+    sha204_read(TYPE_CONFIG, 1, 1);
+    sha204_read(TYPE_CONFIG, 1, 2);
+    sha204_read(TYPE_CONFIG, 1, 3);
+    sha204_read(TYPE_CONFIG, 1, 4);
+    sha204_read(TYPE_CONFIG, 1, 5);
+    sha204_read(TYPE_CONFIG, 1, 6);
+    sha204_read(TYPE_CONFIG, 1, 7);
+    mdelay(60);
+    sha204_command();
 #endif
+    return 0;
+}
+
+static int msm_sha204_i2c_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static const struct i2c_device_id msm_sha204_i2c_id[] = {
+	{ "msm_sha204", (kernel_ulong_t)NULL},
+	{ }
+};
+
+static struct i2c_driver msm_sha204_i2c_driver = {
+	.id_table = msm_sha204_i2c_id,
+	.probe  = msm_sha204_i2c_probe,
+	.remove = msm_sha204_i2c_remove,
+	.driver = {
+		.name = "msm_sha204",
+	},
+};
+
+
+#define I2C_ADAPTER    2
+static struct i2c_adapter *i2c_bus_adapter;
+static int i2c_init(void)
+{
+	int ret = -ENODEV;
+
+	i2c_bus_adapter = i2c_get_adapter(I2C_ADAPTER);
+	if (i2c_bus_adapter == NULL)
+        return ret;
+    gclient = i2c_new_device(i2c_bus_adapter, &i2c_atsha204a);
+    if (!gclient)
+        return ret;
+	ret = i2c_add_driver(&msm_sha204_i2c_driver);
+	if (ret < 0) {
+        printk("i2c_add_driver error!\n");
+        i2c_unregister_device(gclient);
+        return ret;
+	}
+	return ret;
+}
+
+static int i2c_release(void)
+{
+    printk("release atsha204 i2c driver!\n");
+    i2c_del_driver(&msm_sha204_i2c_driver);
+    if(gclient) {
+        i2c_unregister_device(gclient);
+        printk("release atsha204 i2c device!\n");
+    }
+    return 0;
+}
 static int sha204_probe(struct platform_device *dev)
 {
     int res;
@@ -3799,6 +3891,9 @@ static int sha204_probe(struct platform_device *dev)
         return -1;
 	}
 
+    i2c_fail = i2c_init();
+    printk("i2c init ret = %d\n", i2c_fail);
+
 #endif
 	return 0;
 }
@@ -3835,73 +3930,11 @@ static struct platform_driver sha204_driver = {
 };
 
 
-static int msm_sha204_i2c_probe(struct i2c_client *client,
-			 const struct i2c_device_id *id)
-{
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		pr_err("%s i2c_check_functionality failed\n", __func__);
-        return -1;
-	}
-    printk("client device addr = 0x%x\n", client->addr);
- 
-    
-    memcpy(&local_client, client, sizeof(struct i2c_client));
-
-    sha204p_wakeup();
-    sha204_read_sn(client);
-#if 0
-    sha204_read(TYPE_CONFIG, 0, 0);
-    sha204_read(TYPE_CONFIG, 0, 1);
-    sha204_read(TYPE_CONFIG, 0, 2);
-    sha204_read(TYPE_CONFIG, 0, 3);
-    sha204_read(TYPE_CONFIG, 0, 4);
-    sha204_read(TYPE_CONFIG, 0, 5);
-    sha204_read(TYPE_CONFIG, 0, 6);
-    sha204_read(TYPE_CONFIG, 0, 7);
-    sha204_read(TYPE_CONFIG, 1, 0);
-    sha204_read(TYPE_CONFIG, 1, 1);
-    sha204_read(TYPE_CONFIG, 1, 2);
-    sha204_read(TYPE_CONFIG, 1, 3);
-    sha204_read(TYPE_CONFIG, 1, 4);
-    sha204_read(TYPE_CONFIG, 1, 5);
-    sha204_read(TYPE_CONFIG, 1, 6);
-    sha204_read(TYPE_CONFIG, 1, 7);
-#endif
-    mdelay(60);
-    sha204_command();
-
-    return 0;
-}
-
-static int msm_sha204_i2c_remove(struct i2c_client *client)
-{
-	return 0;
-}
-
-static const struct i2c_device_id msm_sha204_i2c_id[] = {
-	{ "msm_sha204", (kernel_ulong_t)NULL},
-	{ }
-};
-
-static struct i2c_driver msm_sha204_i2c_driver = {
-	.id_table = msm_sha204_i2c_id,
-	.probe  = msm_sha204_i2c_probe,
-	.remove = msm_sha204_i2c_remove,
-	.driver = {
-		.name = "msm_sha204",
-	},
-};
-
 static int __init sha204_init(void)
 {
 	int ret = 0;
-    //struct i2c_client* adap;
 
 	printk("sha204 init entry ...\n");
-    //ret = i2c_register_board_info(3, &i2c_atsha204a, 1);
-    //adap = i2c_get_adapter(0);
-    //i2c_new_device(adap, &i2c_atsha204a);
-
 	ret = platform_driver_register(&sha204_driver);
 	if (!ret)
 	{
@@ -3909,8 +3942,7 @@ static int __init sha204_init(void)
 		if (ret)
 			platform_driver_unregister(&sha204_driver);
 	}
-
-	return i2c_add_driver(&msm_sha204_i2c_driver);
+    return 0;
 }
 
 static void __exit sha204_exit(void)
@@ -3918,7 +3950,9 @@ static void __exit sha204_exit(void)
 	printk("sha204 exit entry ...\n");
 	platform_device_unregister(&sha204_device);
 	platform_driver_unregister(&sha204_driver);
-	i2c_del_driver(&msm_sha204_i2c_driver);
+
+    if(!i2c_fail)
+        i2c_release();
 }
 
 module_init(sha204_init);

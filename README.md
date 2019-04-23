@@ -31,3 +31,25 @@ tempkey: hash of info below
 
 
 
+lock config:
+            0x55 = The Configuration zone has write access (unlocked).
+            0x00 = The Configuration zone does not have write access (locked).
+
+data:
+        when config not locked, data can be neither read nor written.
+        the policies become effective upon setting the LockValue byte only.
+
+lock value:
+0x55 =  The Data and OTP zones are unlocked and has write access.
+
+0x00 =  The Data and OTP zones are locked and take on the access policies defined in the configuration zone. 
+        Slots in the Data zone can only be modified based on the corresponding WriteConfig fields. The
+        OTP zone can only be modified based on the OTP mode.0x55 = The Data and OTP zones are unlocked and has write access.
+        0x00 = The Data and OTP zones are locked and take on the access policies defined in the configuration
+        zone. Slots in the Data zone can only be modified based on the corresponding WriteConfig fields. The
+        OTP zone can only be modified based on the OTP mode.
+
+opt: 
+when opt locked, write diabled
+
+

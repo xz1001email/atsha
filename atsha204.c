@@ -427,7 +427,7 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 {
 	uint8_t count = 0;
     struct i2c_client *client = &local_client;
-    int ret = 0;
+    int ret = 1;
     client->addr = 0x64;
     ret = i2c_master_recv(client, response, 1);
     printk("i2c recv ret %d\n", ret);
@@ -1949,7 +1949,9 @@ uint8_t sha204h_mac(struct sha204h_mac_in_out param)
 			// Logical not (!) are used to evaluate the expression to TRUE/FALSE first before comparison (!=)
 			|| (!(param.mode & MAC_MODE_SOURCE_FLAG_MATCH) != !(param.temp_key->source_flag)) ))
 		return SHA204_CMD_FAIL;
-	
+
+	printk("mode = %x\n", param.mode);
+
 	// Start calculation
 	p_temp = temporary;
 		
@@ -2026,7 +2028,7 @@ uint8_t sha204h_mac(struct sha204h_mac_in_out param)
 			*p_temp++ = 0x00;
 		}       
 	}
-	
+
 	// This is the resulting MAC digest
 	sha256(temporary, SHA204_MSG_SIZE_MAC, param.response);
     printk("host do digest:\n");
@@ -3312,6 +3314,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//tony comment: MAC step 4-----ATSHA204 MAC
 	// Execute the MAC command which constitutes sending a challenge. Successful execution will yield a result that contains the "Challenge Response" to be validated later in this function.
 	mac.mode = MAC_MODE_BLOCK2_TEMPKEY;
+	mac.mode |= MAC_MODE_BLOCK1_TEMPKEY;
 	mac.key_id = key_id;
 	mac.challenge = challenge;
 	mac.tx_buffer = transmit_buffer;
@@ -3324,6 +3327,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Collect required information needed by a host system to calculate the expected challenge response in software, then perform the calculation.
 	//mac_param.mode = MAC_MODE_BLOCK1_TEMPKEY|MAC_MODE_BLOCK2_TEMPKEY;
 	mac_param.mode = MAC_MODE_BLOCK2_TEMPKEY;
+	mac_param.mode |= MAC_MODE_BLOCK1_TEMPKEY;
 	mac_param.key_id = key_id;
 	mac_param.challenge = challenge;
 	mac_param.key = secret_key;
@@ -3332,6 +3336,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	mac_param.response = soft_digest;
 	mac_param.temp_key = &tempkey;
 	sha204_lib_return |= sha204h_mac(mac_param);
+    printk("host mac ret = 0x%x\n", sha204_lib_return);
 	
     printk("host digest:\n");
     printbuf(soft_digest, sizeof(soft_digest));
@@ -3604,6 +3609,54 @@ uint8_t atsha204_slot02_personalization(void)
 	return sha204_lib_return;
 }
 
+#define TYPE_CONFIG     0
+#define TYPE_DATA       1
+#define TYPE_OPT        2
+static uint8_t sha204_read(int param1, int block, int offset)
+{
+    struct i2c_client *client = &local_client;
+    int ret = 0;
+    char buf[32] = {2, 0, 0, 0};
+    char response[64] = {0};
+
+    client->addr = 0x64;
+    
+    switch(block){
+        case TYPE_CONFIG:
+            block &= 0xF;
+            break;
+        case TYPE_DATA:
+            block &= 0x3;
+            break;
+        case TYPE_OPT:
+            block &= 0x1;
+            break;
+        default:
+            return -1;
+    }
+
+    buf[0] = 0x03; //word addr
+    buf[1] = 7; //count
+    buf[2] = 0x02;//opcode
+    buf[3] = param1;//param1
+    buf[4] = (block << 3) | (offset & 0x07);
+    buf[5] = 0x00;
+
+    sha204c_calculate_crc(buf[1]-2, &buf[1], &buf[6]);
+    ret = i2c_master_send(client, (const char *)buf, 8);
+    if (ret == 8) {
+        printk("send read sn cmd %d\n", ret);
+        printbuf(buf, 8);
+    } else {
+        printk("send read sn fail\n");
+    }
+    mdelay(60);
+    sha204p_receive_response(sizeof(response), response);
+
+    return 0;
+}
+
+
 static uint8_t sha204_read_sn(struct i2c_client *client)
 {
     int ret = 0;
@@ -3787,9 +3840,25 @@ static int msm_sha204_i2c_probe(struct i2c_client *client,
 
     sha204p_wakeup();
     sha204_read_sn(client);
-	//udelay(30000);
+#if 0
+    sha204_read(TYPE_CONFIG, 0, 0);
+    sha204_read(TYPE_CONFIG, 0, 1);
+    sha204_read(TYPE_CONFIG, 0, 2);
+    sha204_read(TYPE_CONFIG, 0, 3);
+    sha204_read(TYPE_CONFIG, 0, 4);
+    sha204_read(TYPE_CONFIG, 0, 5);
+    sha204_read(TYPE_CONFIG, 0, 6);
+    sha204_read(TYPE_CONFIG, 0, 7);
+    sha204_read(TYPE_CONFIG, 1, 0);
+    sha204_read(TYPE_CONFIG, 1, 1);
+    sha204_read(TYPE_CONFIG, 1, 2);
+    sha204_read(TYPE_CONFIG, 1, 3);
+    sha204_read(TYPE_CONFIG, 1, 4);
+    sha204_read(TYPE_CONFIG, 1, 5);
+    sha204_read(TYPE_CONFIG, 1, 6);
+    sha204_read(TYPE_CONFIG, 1, 7);
+#endif
     mdelay(60);
-    //sha204_nonce(client);
     sha204_command();
 
     return 0;

@@ -1,14 +1,20 @@
 
 #include "sha204.h"
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define ATSHA204A_DEVICE_ADDR         0xC8
+#define ATSHA204A_WRITE 0x00
+#define ATSHA204A_READ  0x01
 
 struct atsha204_pack {
-    uint8_t datalen;
+    uint8_t len;
     uint8_t data[128];
 };
 
+int fd;
 
 void printbuf(char *buf, int len)
 {
@@ -33,14 +39,68 @@ void mdelay(int ms)
     usleep(1000*ms);
 }
 
+static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
+{
+    struct atsha204_pack pack;
+    uint8_t *buf = pack.data;
+
+    buf[0] = word_address; //word addr
+    memcpy(&buf[1], buffer, count);
+    pack.len = count+1;
+    ioctl(fd, ATSHA204A_WRITE, &pack);
+    
+    return SHA204_SUCCESS;
+}
+
+uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
+{
+    struct atsha204_pack pack;
+
+    ioctl(fd, ATSHA204A_READ, &pack);
+
+    printf("recv len = %d:\n", pack.len);
+    printbuf(pack.data, pack.len);
+    
+    return SHA204_SUCCESS;
+}
+
 uint8_t sha204p_wakeup(void)
 {
 	return SHA204_SUCCESS;
 }
 
-
-static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
+uint8_t sha204c_wakeup(uint8_t *response)
 {
+    uint8_t buf[128];
+
+    sha204p_send(0x00, 1, buf);
+    sha204p_receive_response(sizeof(buf), buf);
+
+    return sha204p_wakeup();
+}
+
+static uint8_t sha204_read_sn(void)
+{
+    struct atsha204_pack pack;
+    uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
+    uint8_t *buf = pack.data;
+    uint8_t count;
+
+    count = 7;
+    buf[0] = word_addr;
+    buf[1] = count;//count
+    buf[2] = 0x02;//opcode read
+    buf[3] = 0x00;//parma1
+    buf[4] = 0x00;//parma2
+    buf[5] = 0x00;//parma2
+
+    sha204c_calculate_crc(count-2, &buf[1], &buf[count-1]);
+    pack.len = count+1;
+
+    ioctl(fd, ATSHA204A_WRITE, &pack);
+    sha204p_receive_response(sizeof(pack.data), pack.data);
+    
+    return SHA204_SUCCESS;
 }
 
 uint8_t sha204p_send_command(uint8_t count, uint8_t *command)
@@ -78,16 +138,6 @@ uint8_t sha204p_reset_io(void)
 	return sha204p_send(SHA204_I2C_PACKET_FUNCTION_RESET, 0, NULL);
 }
 
-/** 
- * \brief This I2C function receives a response from the SHA204 device.
- *
- * \param[in] size size of receive buffer
- * \param[out] response pointer to receive buffer
- * \return status of the operation
- */
-uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
-{
-}
 
 /** 
  * \brief This I2C function resynchronizes communication.
@@ -908,16 +958,6 @@ uint8_t sha204c_check_crc(uint8_t *response)
 }
 
 
-/** \brief This function wakes up a SHA204 device
- *         and receives a response.
- *  \param[out] response pointer to four-byte response
- *  \return status of the operation
- */
-uint8_t sha204c_wakeup(uint8_t *response)
-{
-    return sha204p_wakeup();
-    //return SHA204_SUCCESS;
-}
 
 
 /** \brief This function re-synchronizes communication.
@@ -3205,11 +3245,6 @@ static uint8_t sha204_read(int param1, int block, int offset)
     return 0;
 }
 
-
-static uint8_t sha204_read_sn(void)
-{
-}
-
 static int sha204_command(void)
 {
 	int retval;
@@ -3245,9 +3280,19 @@ static int sha204_command(void)
 	return 0;
 }
 
-
+#define ATSHA204_DRIVER_NAME    "/dev/msic-atsha204a"
 int main()
 {
-    sha204_command();
+    fd = open(ATSHA204_DRIVER_NAME, O_RDWR);
+    if(fd < 0) {
+        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
+    }
+
+    sha204c_wakeup(NULL);
+    //sha204_read_sn();
+    //sha204_command();
+
+    close(fd);
     return 0;
 }
+

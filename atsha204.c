@@ -3773,7 +3773,7 @@ static struct attribute_group serialNum = {
 
 
 struct atsha204_pack {
-    uint8_t datalen;
+    uint8_t len;
     uint8_t data[128];
 };
 
@@ -3787,7 +3787,7 @@ static int sha204_receive(struct atsha204_pack *pack)
     struct i2c_client *client = gclient;
     int ret = 1;
 
-    pack->datalen = 0;
+    pack->len = 0;
     client->addr = 0x64;
     ret = i2c_master_recv(client, pack->data, 1);
     printk("i2c recv ret %d\n", ret);
@@ -3804,7 +3804,7 @@ static int sha204_receive(struct atsha204_pack *pack)
     if (ret == count-1) {
         printk("i2c recv data success:\n");
         printbuf(pack->data, count);
-        pack->datalen = count;
+        pack->len = count;
         return 0;	
     } else {
         printk("i2c recv data fail\n");
@@ -3818,11 +3818,13 @@ static int sha204_send(struct atsha204_pack *pack)
     struct i2c_client *client = gclient;
     int ret = 0;
     client->addr = 0x64;
-    ret = i2c_master_send(client, (const char *)pack->data, pack->datalen);
+    ret = i2c_master_send(client, (const char *)pack->data, pack->len);
     printk("send cmd ret %d\n", ret);
-    printbuf(pack->data, ret);
 
-    if (ret == pack->datalen)
+    printk("send len %d\n", pack->len);
+    printbuf(pack->data, pack->len);
+
+    if (ret == pack->len)
         return 0;
     else
         return -1;
@@ -3839,15 +3841,22 @@ static long atsha204a_ioctl(struct file *file, unsigned int cmd, unsigned long a
 	switch (cmd) {
     case ATSHA204A_READ:
         {
+            //if (copy_from_user(&pack, (void __user *)arg, sizeof(pack)))
+            //    return -EFAULT;
+
             ret = sha204_receive(&pack);
-            if (copy_from_user(&pack, (void __user *)arg, sizeof(pack)))
+            if (copy_to_user((void __user *)arg, &pack, sizeof(pack)))
                 return -EFAULT;
+
 			break;
         }
 	case ATSHA204A_WRITE:
         {
-            if (copy_to_user((void __user *)arg, &pack, sizeof(pack)))
+            if (copy_from_user(&pack, (void __user *)arg, sizeof(pack)))
                 return -EFAULT;
+            printk("recv pack len = %d\n", pack.len);
+            printbuf(pack.data, pack.len);
+
             ret = sha204_send(&pack);
             break;
         }

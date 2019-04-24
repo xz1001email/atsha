@@ -1,5 +1,6 @@
 
 #include "sha204.h"
+#include "crypto/atca_crypto_sw_sha2.h"
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -64,7 +65,13 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 
     printf("recv len = %d:\n", pack.len);
     printbuf(pack.data, pack.len);
-    
+
+    if(!response) {
+        return -1;       
+    }
+
+    memcpy(response, pack.data, pack.len);
+
     return SHA204_SUCCESS;
 }
 
@@ -80,6 +87,7 @@ uint8_t sha204c_wakeup(uint8_t *response)
     uint8_t *buf = pack.data;
     pack.device_addr = 0x00;
 
+    printf("enter wake up!\n");
     buf[0] = 0; //word addr
     buf[1] = 0; //word addr
     count = 1;
@@ -88,6 +96,9 @@ uint8_t sha204c_wakeup(uint8_t *response)
 
     usleep(3000);
     sha204p_receive_response(sizeof(pack.data), pack.data);
+    if (pack.data[1] == 0x11) {
+        printf("wake up ok!\n");
+    }
 
     return sha204p_wakeup();
 }
@@ -1360,7 +1371,7 @@ void sha256_transf(sha256_ctx *ctx, const uint8 *message,
 
     }
 }
-
+#if 0
 void sha256(const uint8 *message, uint32 len, uint8 *digest)
 {
     sha256_ctx ctx;
@@ -1369,6 +1380,14 @@ void sha256(const uint8 *message, uint32 len, uint8 *digest)
     sha256_update(&ctx, message, len);
     sha256_final(&ctx, digest);
 }
+#else
+void sha256(const uint8 *message, uint32 len, uint8 *digest)
+{
+    atcac_sw_sha2_256(message, len, digest);
+}
+
+#endif
+
 
 void sha256_init(sha256_ctx *ctx)
 {
@@ -2958,7 +2977,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	sha204_lib_return |= sha204p_sleep();	
 	
 	// Moment of truth!  Compare the chip generated digest found in 'response_buffer' with the host software calculated digest found in 'soft_digest'.
-	sha204_lib_return |= memcmp(soft_digest,&response_buffer[1],32);
+	sha204_lib_return = memcmp(soft_digest,&response_buffer[1],32);
 
 	return sha204_lib_return;
 }
@@ -3284,12 +3303,11 @@ static int sha204_command(void)
 						
 	retval = atsha204_mac(key_id, key, num_in, challenge);
 	printf("sha204_mac retval = %d\n", retval);
-	if (retval != 0)
-	{
-		//reset  
-		printf("sha204_module reset ...\n");
-		//mub_update1(0x0101, 0x05);	
-	}
+    if (retval != 0) {
+        printf("mac fail!\n");
+    } else {
+        printf("mac success!\n");
+    }
 
 	return 0;
 }

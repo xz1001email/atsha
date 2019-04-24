@@ -29,6 +29,11 @@ ENDIF()
 
 # opencv package required
 
+
+file(GLOB_RECURSE CRYPTO_SRC RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "crypto/*.c")
+
+MESSAGE(STATUS ${CRYPTO_SRC})
+
 IF (MSVC)
 ELSEIF (ANDROID_ABI)
     MESSAGE(STATUS "ANDORID platform")
@@ -77,7 +82,7 @@ ELSEIF(ANDROID_ABI)
     #SET(SRC_LIST RingBufDebug.cpp CRingBuf.cpp)
     #ADD_LIBRARY(ringbuf STATIC ${SRC_LIST})
 
-    ADD_EXECUTABLE(atsha204 atsha204_app.c)
+    ADD_EXECUTABLE(atsha204 atsha204_app.c ${CRYPTO_SRC})
     #ADD_DEPENDENCIES(websocket_client MINIEYE_VERSION)
     #TARGET_LINK_LIBRARIES(websocket_client
         #        halio concurrency

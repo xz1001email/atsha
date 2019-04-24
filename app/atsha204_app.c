@@ -5,18 +5,20 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#define ATSHA204A_DEVICE_ADDR         0xC8
+///#define ATSHA204A_DEVICE_ADDR         0xC8
+#define ATSHA204A_DEVICE_ADDR         0x64
 #define ATSHA204A_WRITE 0x00
 #define ATSHA204A_READ  0x01
 
 struct atsha204_pack {
+    uint8_t device_addr;
     uint8_t len;
     uint8_t data[128];
 };
 
 int fd;
 
-void printbuf(char *buf, int len)
+void printbuf(uint8_t *buf, int len)
 {
     int i;
     for(i=0; i<len; i++) {
@@ -43,6 +45,7 @@ static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer
 {
     struct atsha204_pack pack;
     uint8_t *buf = pack.data;
+    pack.device_addr = ATSHA204A_DEVICE_ADDR;
 
     buf[0] = word_address; //word addr
     memcpy(&buf[1], buffer, count);
@@ -55,6 +58,7 @@ static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer
 uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 {
     struct atsha204_pack pack;
+    pack.device_addr = ATSHA204A_DEVICE_ADDR;
 
     ioctl(fd, ATSHA204A_READ, &pack);
 
@@ -70,11 +74,20 @@ uint8_t sha204p_wakeup(void)
 }
 
 uint8_t sha204c_wakeup(uint8_t *response)
-{
-    uint8_t buf[128];
+{   
+    int count;
+    struct atsha204_pack pack;
+    uint8_t *buf = pack.data;
+    pack.device_addr = 0x00;
 
-    sha204p_send(0x00, 1, buf);
-    sha204p_receive_response(sizeof(buf), buf);
+    buf[0] = 0; //word addr
+    buf[1] = 0; //word addr
+    count = 1;
+    pack.len = count+1;
+    ioctl(fd, ATSHA204A_WRITE, &pack);
+
+    usleep(3000);
+    sha204p_receive_response(sizeof(pack.data), pack.data);
 
     return sha204p_wakeup();
 }
@@ -85,6 +98,7 @@ static uint8_t sha204_read_sn(void)
     uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
     uint8_t *buf = pack.data;
     uint8_t count;
+    pack.device_addr = ATSHA204A_DEVICE_ADDR;
 
     count = 7;
     buf[0] = word_addr;
@@ -3289,8 +3303,8 @@ int main()
     }
 
     sha204c_wakeup(NULL);
-    //sha204_read_sn();
-    //sha204_command();
+    sha204_read_sn();
+    sha204_command();
 
     close(fd);
     return 0;

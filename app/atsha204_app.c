@@ -30,7 +30,7 @@ void printbuf(uint8_t *buf, int len)
     for(i=0; i<len; i++) {
         if (i && i%16 == 0)
             printf("\n");
-        printf("0x%02x ", buf[i]);
+        printf("0x%02x, ", buf[i]);
     }
     printf("\n");
 }
@@ -110,7 +110,7 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
         //close(f_i2c);
         return SHA204_COMM_FAIL;
     }
-    printbuf(response, count);
+    //printbuf(response, count);
 
     //close(f_i2c);
     return SHA204_SUCCESS;
@@ -164,11 +164,11 @@ uint8_t sha204c_wakeup(uint8_t *response)
     // Receive data
     if (read(f_i2c, data, 4) != 4)
     {
+        printbuf(data, 4);
         printf("read fail\n");
         //close(f_i2c);
         return ATCA_RX_NO_RESPONSE;
     }
-    printbuf(data, 4);
 
     //close(f_i2c);
     // if necessary, revert baud rate to what came in.
@@ -232,8 +232,8 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 
     ioctl(f_i2c, ATSHA204A_READ, &pack);
 
-    printf("recv len = %d:\n", pack.len);
-    printbuf(pack.data, pack.len);
+    //printf("recv len = %d:\n", pack.len);
+    //printbuf(pack.data, pack.len);
 
     if(!response) {
         return -1;       
@@ -2367,7 +2367,7 @@ void sha204h_calculate_crc_chain(uint8_t length, uint8_t *data, uint8_t *crc)
 }
 //========================================================================================================================
 //atsha204_device_personalization.c
-
+//store
 uint8_t atsha204_device_personalization(void) 
 {
 	static uint8_t sha204_lib_return = SHA204_SUCCESS;
@@ -3405,7 +3405,7 @@ uint8_t atsha204_slot02_personalization(void)
 }
 
 
-static int get_random(void)
+static int get_random(uint8_t key[32])
 {
 
 	static uint8_t sha204_lib_return = SHA204_SUCCESS;
@@ -3418,9 +3418,13 @@ static int get_random(void)
 	random_parameters.mode = RANDOM_SEED_UPDATE;
 	
 	sha204_lib_return |= sha204m_random(&random_parameters);
-    printf("random:\n");
-    printbuf(response_buffer, SHA204_RSP_SIZE_MAX);
-
+    if (response_buffer[SHA204_BUFFER_POS_COUNT] = 35) {
+        //printf("random ok\n");
+        //printbuf(response_buffer, SHA204_RSP_SIZE_MAX);
+        memcpy(key, &response_buffer[1], 32);
+        return SHA204_SUCCESS;
+    }
+    return SHA204_COMM_FAIL;
 }
 
 
@@ -3433,13 +3437,18 @@ static int sha204_command(void)
 				 0x61, 0x92, 0x79, 0x3b, 0xec, 0xc4, 0x29, 0xfc, 0xdf, 0x7d,
 				 0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x53, 0x8e,
 				 0xe1, 0xd3};
-	char num_in[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
+	char num_in[32] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
 				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20};
-	char challenge[] = {0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6,
-						0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
-						0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x23, 0x8e,
-						0xe1, 0xd3};
+
+    /* MAC_MODE_PASSTHROUGH using this */
+	char challenge[] = {0x11, 0x12};
 						
+    sha204c_wakeup(NULL);
+    get_random(num_in);
+    printf("num in:\n");
+    printbuf(num_in, 32);
+	sha204p_sleep();		
+
 	retval = atsha204_mac(key_id, key, num_in, challenge);
 	printf("sha204_mac retval = %d\n", retval);
     if (retval != 0) {
@@ -3450,6 +3459,27 @@ static int sha204_command(void)
 
 	return 0;
 }
+
+int roll_key(void)
+{
+    int ret;
+    uint8_t key[32];
+    int i;
+
+    printf("----------------------roll key--------------------------\n");
+    for (i=0; i<16; i++) {
+        ret = get_random(key);
+        if (ret == SHA204_SUCCESS) {
+            printf("uint8_t SLOT_%02d_CONTENT [WRITE_BUFFER_SIZE_LONG] = {\n", i);
+            printbuf(key, sizeof(key));
+            printf("}\n");
+        }
+    }
+    printf("----------------------roll key over---------------------\n");
+    return 0;
+}
+
+
 
 int main()
 {
@@ -3462,7 +3492,9 @@ int main()
         printf("open %s success\n", ATSHA204_DRIVER_NAME);
 
     sha204c_wakeup(NULL);
-    get_random();
+    roll_key();
+
+    //get_random();
     sha204_read_sn();
 	sha204p_sleep();		
     sha204_command();

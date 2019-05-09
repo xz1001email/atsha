@@ -8,10 +8,13 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#define ATSHA204A_DEVICE_ADDR         0xC8
-//#define ATSHA204A_DEVICE_ADDR         0x64
+#define ATSHA204A_DEVICE_ADDR         (0xC8 >> 1)
+//#define ATSHA204A_DEVICE_ADDR       (0x64)
+
 #define ATSHA204A_WRITE 0x00
 #define ATSHA204A_READ  0x01
+
+#define USING_DEV_I2C
 
 struct atsha204_pack {
     uint8_t device_addr;
@@ -44,6 +47,14 @@ void mdelay(int ms)
     usleep(1000*ms);
 }
 
+uint8_t sha204p_wakeup(void)
+{
+	return SHA204_SUCCESS;
+}
+
+
+#ifdef USING_DEV_I2C
+#define ATSHA204_DRIVER_NAME    "/dev/i2c-2"
 static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
 {
     uint8_t buf[128];
@@ -53,7 +64,7 @@ static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer
     count += 1;
 
     // Set Slave Address
-    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR >> 1) < 0)
+    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR) < 0)
     {
         //close(f_i2c);
         return SHA204_COMM_FAIL;
@@ -67,11 +78,10 @@ static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer
     //close(f_i2c);
     return SHA204_SUCCESS;
 }
-
 uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 {
     int count = 0;
-    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR >> 1) < 0)
+    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR) < 0)
     {
         //close(f_i2c);
         return SHA204_COMM_FAIL;
@@ -105,12 +115,6 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
     //close(f_i2c);
     return SHA204_SUCCESS;
 }
-
-uint8_t sha204p_wakeup(void)
-{
-	return SHA204_SUCCESS;
-}
-
 uint8_t hal_check_wake(const uint8_t* response, int response_size)
 {
     const uint8_t expected_response[4] = { 0x04, 0x11, 0x33, 0x43  };
@@ -129,11 +133,7 @@ uint8_t hal_check_wake(const uint8_t* response, int response_size)
         return SHA204_COMM_FAIL;
     }   
     return SHA204_COMM_FAIL;
-
 }
-
-#define I2C_FILE "/dev/i2c-2"
-
 uint8_t sha204c_wakeup(uint8_t *response)
 {
     uint8_t data[4];
@@ -153,7 +153,7 @@ uint8_t sha204c_wakeup(uint8_t *response)
 
     usleep(3000); // wait tWHI + tWLO which is configured based on device type and configuration structure
     // Set Slave Address
-    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR >> 1) < 0)
+    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR) < 0)
     {
         printf("ioctl addr fail\n");
         perror("err:");
@@ -174,7 +174,6 @@ uint8_t sha204c_wakeup(uint8_t *response)
     // if necessary, revert baud rate to what came in.
     return hal_check_wake(data, 4);
 }
-
 static uint8_t sha204_read_sn(void)
 {
     uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
@@ -192,7 +191,7 @@ static uint8_t sha204_read_sn(void)
     sha204c_calculate_crc(count-2, &buf[1], &buf[count-1]);
     count += 1;
     // Set Slave Address
-    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR >> 1) < 0)
+    if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR) < 0)
     {
         //close(f_i2c);
         printf("ioctl addr fail\n");
@@ -210,6 +209,91 @@ static uint8_t sha204_read_sn(void)
     
     return SHA204_SUCCESS;
 }
+#else //using atsha204.ko
+#define ATSHA204_DRIVER_NAME    "/dev/msic-atsha204a"
+static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
+{
+    struct atsha204_pack pack;
+    uint8_t *buf = pack.data;
+    pack.device_addr = ATSHA204A_DEVICE_ADDR;
+
+    buf[0] = word_address; //word addr
+    memcpy(&buf[1], buffer, count);
+    pack.len = count+1;
+    ioctl(f_i2c, ATSHA204A_WRITE, &pack);
+    
+    return SHA204_SUCCESS;
+}
+
+uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
+{
+    struct atsha204_pack pack;
+    pack.device_addr = ATSHA204A_DEVICE_ADDR;
+
+    ioctl(f_i2c, ATSHA204A_READ, &pack);
+
+    printf("recv len = %d:\n", pack.len);
+    printbuf(pack.data, pack.len);
+
+    if(!response) {
+        return -1;       
+    }
+
+    memcpy(response, pack.data, pack.len);
+
+    return SHA204_SUCCESS;
+}
+
+uint8_t sha204c_wakeup(uint8_t *response)
+{   
+    int count;
+    struct atsha204_pack pack;
+    uint8_t *buf = pack.data;
+    pack.device_addr = 0x00;
+
+    printf("enter wake up!\n");
+    buf[0] = 0; //word addr
+    buf[1] = 0; //word addr
+    count = 1;
+    pack.len = count+1;
+    ioctl(f_i2c, ATSHA204A_WRITE, &pack);
+
+    usleep(3000);
+    sha204p_receive_response(sizeof(pack.data), pack.data);
+    if (pack.data[1] == 0x11) {
+        printf("wake up ok!\n");
+    }
+
+    return sha204p_wakeup();
+}
+
+static uint8_t sha204_read_sn(void)
+{
+    struct atsha204_pack pack;
+    uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
+    uint8_t *buf = pack.data;
+    uint8_t count;
+    pack.device_addr = ATSHA204A_DEVICE_ADDR;
+
+    count = 7;
+    buf[0] = word_addr;
+    buf[1] = count;//count
+    buf[2] = 0x02;//opcode read
+    buf[3] = 0x00;//parma1
+    buf[4] = 0x00;//parma2
+    buf[5] = 0x00;//parma2
+
+    sha204c_calculate_crc(count-2, &buf[1], &buf[count-1]);
+    pack.len = count+1;
+
+    ioctl(f_i2c, ATSHA204A_WRITE, &pack);
+    sha204p_receive_response(sizeof(pack.data), pack.data);
+    
+    return SHA204_SUCCESS;
+}
+
+#endif
+
 
 uint8_t sha204p_send_command(uint8_t count, uint8_t *command)
 {
@@ -3001,7 +3085,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	// Execute the nonce command - precedes all MAC commands.
 	nonce_parameters.tx_buffer = transmit_buffer;
 	nonce_parameters.rx_buffer = response_buffer;
-	nonce_parameters.mode = NONCE_MODE_PASSTHROUGH;
+	//nonce_parameters.mode = NONCE_MODE_PASSTHROUGH;
 	nonce_parameters.mode = NONCE_MODE_NO_SEED_UPDATE;
 	nonce_parameters.num_in = NumIn;
 	
@@ -3011,7 +3095,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//tony comment: MAC step 3-----MCU side calculate tempkey
 	// Initialize parameter for helper function
 	// Initialize parameter for helper function
-	nonce_param.mode = NONCE_MODE_PASSTHROUGH;
+	//nonce_param.mode = NONCE_MODE_PASSTHROUGH;
 	nonce_param.mode = NONCE_MODE_NO_SEED_UPDATE;
 	nonce_param.num_in = NumIn;	
 	nonce_param.rand_out = &response_buffer[1];	
@@ -3320,46 +3404,25 @@ uint8_t atsha204_slot02_personalization(void)
 	return sha204_lib_return;
 }
 
-#define TYPE_CONFIG     0
-#define TYPE_DATA       1
-#define TYPE_OPT        2
-static uint8_t sha204_read(int param1, int block, int offset)
+
+static int get_random(void)
 {
-#if 0
-    int ret = 0;
-    char buf[32] = {2, 0, 0, 0};
-    char response[64] = {0};
 
-    
-    switch(block){
-        case TYPE_CONFIG:
-            block &= 0xF;
-            break;
-        case TYPE_DATA:
-            block &= 0x3;
-            break;
-        case TYPE_OPT:
-            block &= 0x1;
-            break;
-        default:
-            return -1;
-    }
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	struct sha204_random_parameters random_parameters;
+	uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	uint8_t response_buffer[SHA204_RSP_SIZE_MAX];
 
-    buf[0] = 0x03; //word addr
-    buf[1] = 7; //count
-    buf[2] = 0x02;//opcode
-    buf[3] = param1;//param1
-    buf[4] = (block << 3) | (offset & 0x07);
-    buf[5] = 0x00;
+	random_parameters.tx_buffer = transmit_buffer;
+	random_parameters.rx_buffer = response_buffer;
+	random_parameters.mode = RANDOM_SEED_UPDATE;
+	
+	sha204_lib_return |= sha204m_random(&random_parameters);
+    printf("random:\n");
+    printbuf(response_buffer, SHA204_RSP_SIZE_MAX);
 
-    sha204c_calculate_crc(buf[1]-2, &buf[1], &buf[6]);
-
-    //ret = i2c_master_send(client, (const char *)buf, 8);
-    mdelay(60);
-    //sha204p_receive_response(sizeof(response), response);
-#endif
-    return 0;
 }
+
 
 static int sha204_command(void)
 {
@@ -3370,15 +3433,8 @@ static int sha204_command(void)
 				 0x61, 0x92, 0x79, 0x3b, 0xec, 0xc4, 0x29, 0xfc, 0xdf, 0x7d,
 				 0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x53, 0x8e,
 				 0xe1, 0xd3};
-#if 0
 	char num_in[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
 				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20};
-#else
-	char num_in[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
-				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20,
-				     0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x20,
-				     0x11, 0x12};
-#endif
 	char challenge[] = {0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 0xf6,
 						0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10,
 						0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x23, 0x8e,
@@ -3395,18 +3451,18 @@ static int sha204_command(void)
 	return 0;
 }
 
-#define ATSHA204_DRIVER_NAME    "/dev/msic-atsha204a"
 int main()
 {
-    if ( (f_i2c = open(I2C_FILE, O_RDWR)) < 0)
+    if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0)
     {
-        printf("open %s fail\n", I2C_FILE);
+        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
         return SHA204_COMM_FAIL;
     }
     else
-        printf("open %s success\n", I2C_FILE);
+        printf("open %s success\n", ATSHA204_DRIVER_NAME);
 
     sha204c_wakeup(NULL);
+    get_random();
     sha204_read_sn();
 	sha204p_sleep();		
     sha204_command();

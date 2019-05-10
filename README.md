@@ -53,3 +53,10 @@ opt:
 when opt locked, write diabled
 
 
+
+
+ko debug:
+#walling make error
+#kernel/msm-3.18/scripts/gcc-wrapper.py
+#interpret_warning(line)
+#

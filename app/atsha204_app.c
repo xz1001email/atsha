@@ -7,6 +7,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pthread.h>
+#include <sys/prctl.h>
+#include <sys/file.h>
 
 #define ATSHA204A_DEVICE_ADDR         (0xC8 >> 1)
 //#define ATSHA204A_DEVICE_ADDR       (0x64)
@@ -23,7 +26,6 @@ struct atsha204_pack {
 };
 
 int f_i2c;
-
 void printbuf(uint8_t *buf, int len)
 {
     int i;
@@ -52,10 +54,9 @@ uint8_t sha204p_wakeup(void)
 	return SHA204_SUCCESS;
 }
 
-
 #ifdef USING_DEV_I2C
 #define ATSHA204_DRIVER_NAME    "/dev/i2c-2"
-static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
+uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
 {
     uint8_t buf[128];
 
@@ -78,6 +79,7 @@ static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer
     //close(f_i2c);
     return SHA204_SUCCESS;
 }
+
 uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
 {
     int count = 0;
@@ -138,6 +140,7 @@ uint8_t sha204c_wakeup(uint8_t *response)
 {
     uint8_t data[4];
     uint8_t dummy_byte = 0;
+    int ret=0;
 
     if (ioctl(f_i2c, I2C_SLAVE_FORCE, 0) < 0)
     {
@@ -152,33 +155,47 @@ uint8_t sha204c_wakeup(uint8_t *response)
     }
 
     usleep(3000); // wait tWHI + tWLO which is configured based on device type and configuration structure
-    // Set Slave Address
     if (ioctl(f_i2c, I2C_SLAVE_FORCE, ATSHA204A_DEVICE_ADDR) < 0)
     {
-        printf("ioctl addr fail\n");
-        perror("err:");
-        //close(f_i2c);
+        perror("atsha ioctl err:");
         return SHA204_COMM_FAIL;
     }
 
     // Receive data
     if (read(f_i2c, data, 4) != 4)
     {
-        printbuf(data, 4);
-        printf("read fail\n");
-        //close(f_i2c);
+        //printf("read fail 0x%x\n", ATCA_RX_NO_RESPONSE);
         return ATCA_RX_NO_RESPONSE;
     }
 
-    //close(f_i2c);
-    // if necessary, revert baud rate to what came in.
     return hal_check_wake(data, 4);
 }
-static uint8_t sha204_read_sn(void)
+
+uint8_t sha204_read_sn(void)
 {
     uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
     uint8_t count;
     uint8_t buf[64];
+    int retval;
+
+    if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
+        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
+        return -1;
+    }
+    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
+    if (retval < 0) {
+        printf("file lock fail\n");
+        close(f_i2c);
+        return -2;
+    }
+    //printf("wake up %d\n", sha204c_wakeup(NULL));
+    if (sha204c_wakeup(NULL)) {
+        printf("wake up fail\n");
+        close(f_i2c);
+        return -1;
+    } else {
+        printf("wake up ok\n");
+    }
 
     count = 7;
     buf[0] = word_addr;
@@ -204,14 +221,18 @@ static uint8_t sha204_read_sn(void)
         printf("write fail\n");
         return SHA204_COMM_FAIL;
     }
-
-    sha204p_receive_response(sizeof(buf), buf);
     
+    memset(buf, 0, sizeof(buf));
+    sha204p_receive_response(sizeof(buf), buf);
+    printbuf(buf, buf[0]);
+    
+    sha204p_sleep();		
+    close(f_i2c);
     return SHA204_SUCCESS;
 }
 #else //using atsha204.ko
 #define ATSHA204_DRIVER_NAME    "/dev/msic-atsha204a"
-static uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
+uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
 {
     struct atsha204_pack pack;
     uint8_t *buf = pack.data;
@@ -267,7 +288,7 @@ uint8_t sha204c_wakeup(uint8_t *response)
     return sha204p_wakeup();
 }
 
-static uint8_t sha204_read_sn(void)
+uint8_t sha204_read_sn(void)
 {
     struct atsha204_pack pack;
     uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
@@ -1679,10 +1700,10 @@ uint8_t sha204h_nonce(struct sha204h_nonce_in_out param)
 		*p_temp++ = 0x00;
 			
 		sha256(temporary, SHA204_MSG_SIZE_NONCE, param.temp_key->value);
-        printf("host do nonce:\n");
-        printbuf(temporary, SHA204_MSG_SIZE_NONCE);
-        printf("host get tempkey:\n");
-        printbuf(param.temp_key->value, 32);
+        //printf("host do nonce:\n");
+        //printbuf(temporary, SHA204_MSG_SIZE_NONCE);
+        //printf("host get tempkey:\n");
+        //printbuf(param.temp_key->value, 32);
 
 		
 		// Update TempKey.SourceFlag to 0 (random)
@@ -1741,7 +1762,7 @@ uint8_t sha204h_mac(struct sha204h_mac_in_out param)
 			|| (!(param.mode & MAC_MODE_SOURCE_FLAG_MATCH) != !(param.temp_key->source_flag)) ))
 		return SHA204_CMD_FAIL;
 
-	printf("mode = %x\n", param.mode);
+	//printf("mode = %x\n", param.mode);
 
 	// Start calculation
 	p_temp = temporary;
@@ -1822,8 +1843,8 @@ uint8_t sha204h_mac(struct sha204h_mac_in_out param)
 
 	// This is the resulting MAC digest
 	sha256(temporary, SHA204_MSG_SIZE_MAC, param.response);
-    printf("host do digest:\n");
-    printbuf(temporary, SHA204_MSG_SIZE_MAC);
+    //printf("host do digest:\n");
+    //printbuf(temporary, SHA204_MSG_SIZE_MAC);
 	
 	// Update TempKey fields
 	param.temp_key->valid = 0;
@@ -3131,13 +3152,13 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	mac_param.response = soft_digest;
 	mac_param.temp_key = &tempkey;
 	sha204_lib_return |= sha204h_mac(mac_param);
-    printf("host mac ret = 0x%x\n", sha204_lib_return);
 	
+#if 0
     printf("host digest:\n");
     printbuf(soft_digest, sizeof(soft_digest));
     printf("atsha204 digest:\n");
     printbuf(&response_buffer[1], 32);
-	
+#endif
 	//-----------tony comment:ATSHA204 side operate------
 	//tony comment: MAC step 6-----MCU MAC
 	// Send Sleep command.
@@ -3150,11 +3171,6 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 }
 
 //========================================================================================================================
-
-
-
-
-
 uint8_t atsha204_slot02_personalization(void) 
 {
 	static uint8_t sha204_lib_return = SHA204_SUCCESS;
@@ -3404,120 +3420,169 @@ uint8_t atsha204_slot02_personalization(void)
 	return sha204_lib_return;
 }
 
-
-static int get_random(uint8_t key[32])
+int get_random(uint8_t key[32])
 {
+    static uint8_t sha204_lib_return = SHA204_SUCCESS;
+    struct sha204_random_parameters random_parameters;
+    uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+    uint8_t response_buffer[SHA204_RSP_SIZE_MAX];
 
-	static uint8_t sha204_lib_return = SHA204_SUCCESS;
-	struct sha204_random_parameters random_parameters;
-	uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
-	uint8_t response_buffer[SHA204_RSP_SIZE_MAX];
+    random_parameters.tx_buffer = transmit_buffer;
+    random_parameters.rx_buffer = response_buffer;
+    random_parameters.mode = RANDOM_SEED_UPDATE;
 
-	random_parameters.tx_buffer = transmit_buffer;
-	random_parameters.rx_buffer = response_buffer;
-	random_parameters.mode = RANDOM_SEED_UPDATE;
-	
-	sha204_lib_return |= sha204m_random(&random_parameters);
+    sha204_lib_return |= sha204m_random(&random_parameters);
     if (response_buffer[SHA204_BUFFER_POS_COUNT] = 35) {
-        //printf("random ok\n");
-        //printbuf(response_buffer, SHA204_RSP_SIZE_MAX);
         memcpy(key, &response_buffer[1], 32);
         return SHA204_SUCCESS;
     }
     return SHA204_COMM_FAIL;
 }
 
-
-static int certification(void)
+int get_authentication(void)
 {
-	int retval;
-	int key_id = 2;
-	char num_in[32];
-
-    /* MAC_MODE_PASSTHROUGH using this */
-	char challenge[] = {0x11, 0x12};
-    uint8_t key[32] = {0x14, 0x15, 0x63, 0x37, 0x28, 0x45, 0x73, 0x94, 0x51, 0x34,
+    int retval;
+    int key_id = 2;
+    char num_in[32];
+    char challenge[32]; /* MAC_MODE_PASSTHROUGH using this */
+    uint8_t key[32] = {
+        0x14, 0x15, 0x63, 0x37, 0x28, 0x45, 0x73, 0x94, 0x51, 0x34,
         0x61, 0x92, 0x79, 0x3b, 0xec, 0xc4, 0x29, 0xfc, 0xdf, 0x7d,
         0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x53, 0x8e,
         0xe1, 0xd3};
 
-    sha204c_wakeup(NULL);
-    get_random(num_in);
-    printf("num in:\n");
-    printbuf(num_in, 32);
-	sha204p_sleep();		
-
-	retval = atsha204_mac(key_id, key, num_in, challenge);
-	return retval;
-}
-
-int roll_key(void)
-{
-    int ret;
-    uint8_t key[32];
-    int i;
-
-    printf("----------------------random----------------------\n");
-    ret = get_random(key);
-    if (ret == SHA204_SUCCESS) {
-        printbuf(key, sizeof(key));
-    }
-    return 0;
-}
-int roll_16slot_key(void)
-{
-    int ret;
-    uint8_t key[32];
-    int i;
-
-    printf("----------------------roll key--------------------------\n");
-    for (i=0; i<16; i++) {
-        ret = get_random(key);
-        if (ret == SHA204_SUCCESS) {
-            printf("uint8_t SLOT_%02d_CONTENT [WRITE_BUFFER_SIZE_LONG] = {\n", i);
-            printbuf(key, sizeof(key));
-            printf("}\n");
-        }
-    }
-    printf("----------------------roll key over---------------------\n");
-    return 0;
-}
-
-
-int main(int argc, char **argv)
-{
-	int retval;
     if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
         printf("open %s fail\n", ATSHA204_DRIVER_NAME);
         return -1;
     }
+    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
+    //retval = flock(f_i2c, LOCK_EX);
+    if (retval < 0) {
+        printf("file lock fail\n");
+        perror("err:");
+        close(f_i2c);
+        return -2;
+    }
 
-    if (argc >= 2) {
-        if (!memcmp("store", argv[1], strlen(argv[1]))) {
-            printf("config and store key!\n");
-            retval = atsha204_device_personalization();
-            printf("retval = %d\n", retval);
-        } else if (!memcmp("rollkey", argv[1], strlen(argv[1]))) {
-            printf("roll key!\n");
-            sha204c_wakeup(NULL);
-            roll_key();
-            sha204p_sleep();		
-        } else if (!memcmp("sn", argv[1], strlen(argv[1]))) {
-            printf("read sn!\n");
-            sha204c_wakeup(NULL);
-            sha204_read_sn();
-            sha204p_sleep();		
-        }
-        return 0;
-    } else {
-        retval = certification();
-        if (retval != 0) {
-            printf("mac fail!\n");
-        } else {
-            printf("mac success!\n");
+    if (sha204c_wakeup(NULL)) {
+        printf("wake up fail\n");
+        close(f_i2c);
+        return -1;
+    }
+    get_random(num_in);
+    sha204p_sleep();		
+
+    retval = atsha204_mac(key_id, key, num_in, challenge);
+    close(f_i2c);
+    return retval;
+}
+
+int roll_key(uint32_t cnt)
+{
+    int retval;
+    uint8_t key[32];
+    int i;
+
+    if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
+        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
+        return -1;
+    }
+    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
+    if (retval < 0) {
+        printf("file lock fail\n");
+        close(f_i2c);
+        return -2;
+    }
+
+    if (sha204c_wakeup(NULL)) {
+        printf("wake up fail\n");
+        close(f_i2c);
+        return -1;
+    }
+    for (i=0; i<cnt; i++) {
+        retval = get_random(key);
+        if (retval == SHA204_SUCCESS) {
+            printbuf(key, sizeof(key));
+            printf("\n");
         }
     }
+    sha204p_sleep();		
     close(f_i2c);
     return 0;
 }
+int store_key(void)
+{
+    int retval;
+    uint8_t key[32];
+    int i;
+
+    if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
+        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
+        return -1;
+    }
+    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
+    if (retval < 0) {
+        printf("file lock fail\n");
+        close(f_i2c);
+        return -2;
+    }
+
+    if (sha204c_wakeup(NULL)) {
+        printf("wake up fail\n");
+        close(f_i2c);
+        return -1;
+    }
+    retval = atsha204_device_personalization();
+    sha204p_sleep();		
+    close(f_i2c);
+    return retval;
+}
+
+#if defined ANDROID
+#elif defined UNIX
+#endif
+
+
+
+#if 0
+int main(int argc, char **argv)
+{
+	int retval;
+    bool result;
+    int count = 1;
+    int i=0;
+    int errcnt = 0;
+    if (argc >= 2) {
+        if (!memcmp("store", argv[1], strlen(argv[1]))) {
+            printf("config and store key!\n");
+            retval = store_key();
+            printf("retval = %d\n", retval);
+        } else if (!memcmp("rollkey", argv[1], strlen(argv[1]))) {
+            printf("roll key!\n");
+            roll_key(1);
+        } else if (!memcmp("sn", argv[1], strlen(argv[1]))) {
+            printf("read sn!\n");
+            sha204_read_sn();
+        } else if (!memcmp("test", argv[1], strlen(argv[1]))) {
+            if (argc >= 3) {
+                count = strtol(argv[2], NULL, 10);
+                printf("test authentication %d times\n", count);
+            }
+            while (i < count) {
+                retval = get_authentication();
+                i++;
+                if (retval != 0) {
+                    errcnt ++;
+                }
+                printf("\rtest count %8d/%d err %d", i, count, errcnt);
+                fflush(stdout);
+                usleep(10);
+            }
+            printf("\n\n");
+        }
+        return 0;
+    }
+    return 0;
+}
+#endif
 

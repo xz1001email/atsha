@@ -11,7 +11,7 @@ MESSAGE(STATUS "${CMAKE_SOURCE_DIR}")
 SET(EXECUTABLE_OUTPUT_PATH "${PROJECT_BINARY_DIR}/bin")
 SET(LIBRARY_OUTPUT_PATH "${PROJECT_BINARY_DIR}/lib/")
 SET(SCRIPTS_PATH "${PROJECT_ROOT_PATH}/../scripts/")
-SET(CMAKE_SHARED_LINKER_FLAGS "-Wl,--export-all-symbols")
+#SET(CMAKE_SHARED_LINKER_FLAGS "-Wl,--export-all-symbols")
 #SET(CMAKE_STATIC_LINKER_FLAGS "-Wl,--export-all-symbols")
 SET(LINK_FLAGS ${LINK_FLAGS} "-Wl,-whole-archive")
 
@@ -82,15 +82,18 @@ ELSEIF(ANDROID_ABI)
     #SET(SRC_LIST RingBufDebug.cpp CRingBuf.cpp)
     #ADD_LIBRARY(ringbuf STATIC ${SRC_LIST})
 
-    ADD_EXECUTABLE(atsha204 atsha204_app.c ${CRYPTO_SRC})
+    ADD_LIBRARY(atsha204 SHARED atsha204_app.c ${CRYPTO_SRC})
+    ADD_LIBRARY(atsha204-static STATIC atsha204_app.c ${CRYPTO_SRC})
+
+    ADD_EXECUTABLE(atshaTest main.c)
     #ADD_DEPENDENCIES(websocket_client MINIEYE_VERSION)
-    #TARGET_LINK_LIBRARIES(websocket_client
+    TARGET_LINK_LIBRARIES(atshaTest atsha204-static
         #        halio concurrency
         #libmsgpackc.a libwebsockets.a dl
         #ringbuf halio concurrency
         #-Wl,--start-group
         # -Wl,--end-group
-        #   )
+           )
 ELSE()
     #ADD_EXECUTABLE(audioplayer ./audioplayer_linux.cpp)
     #TARGET_LINK_LIBRARIES(audioplayer

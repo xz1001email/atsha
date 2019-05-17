@@ -3439,17 +3439,19 @@ int get_random(uint8_t key[32])
     return SHA204_COMM_FAIL;
 }
 
+uint8_t authkey[16][32];
+
+void import_key(uint8_t key[16][32])
+{
+    memcpy(authkey, key, sizeof(authkey));
+}
+
 int get_authentication(void)
 {
     int retval;
     int key_id = 2;
     char num_in[32];
     char challenge[32]; /* MAC_MODE_PASSTHROUGH using this */
-    uint8_t key[32] = {
-        0x14, 0x15, 0x63, 0x37, 0x28, 0x45, 0x73, 0x94, 0x51, 0x34,
-        0x61, 0x92, 0x79, 0x3b, 0xec, 0xc4, 0x29, 0xfc, 0xdf, 0x7d,
-        0x6c, 0xaa, 0x76, 0x23, 0x85, 0x12, 0x1d, 0x4e, 0x53, 0x8e,
-        0xe1, 0xd3};
 
     if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
         printf("open %s fail\n", ATSHA204_DRIVER_NAME);
@@ -3472,7 +3474,7 @@ int get_authentication(void)
     get_random(num_in);
     sha204p_sleep();		
 
-    retval = atsha204_mac(key_id, key, num_in, challenge);
+    retval = atsha204_mac(key_id, authkey[key_id], num_in, challenge);
     close(f_i2c);
     return retval;
 }

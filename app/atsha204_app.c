@@ -3448,6 +3448,7 @@ void import_key(uint8_t key[16][32])
 
 int get_authentication(void)
 {
+    int retry = 3;
     int retval;
     int key_id = 2;
     char num_in[32];
@@ -3457,8 +3458,16 @@ int get_authentication(void)
         printf("open %s fail\n", ATSHA204_DRIVER_NAME);
         return -1;
     }
-    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
-    //retval = flock(f_i2c, LOCK_EX);
+    while (retry--) {
+        retval = flock(f_i2c, LOCK_EX | LOCK_NB);
+        //retval = flock(f_i2c, LOCK_EX);
+        if (retval < 0) {
+            usleep(100000);
+            printf("flock retry %d\n", retry);
+        } else {
+            break;
+        }
+    }
     if (retval < 0) {
         printf("file lock fail\n");
         perror("err:");

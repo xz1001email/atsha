@@ -53,8 +53,10 @@ int main(int argc, char **argv)
                 i++;
                 if (retval != 0) {
                     errcnt ++;
+                    printf("test count %8d/%d err %d\n", i, count, errcnt);
+                } else {
+                    printf("\rtest count %8d/%d err %d", i, count, errcnt);
                 }
-                printf("\rtest count %8d/%d err %d", i, count, errcnt);
                 fflush(stdout);
                 usleep(10);
             }

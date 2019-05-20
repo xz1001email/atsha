@@ -164,9 +164,10 @@ uint8_t sha204c_wakeup(uint8_t *response)
     // Receive data
     if (read(f_i2c, data, 4) != 4)
     {
-        //printf("read fail 0x%x\n", ATCA_RX_NO_RESPONSE);
+        printf("read fail 0x%x\n", ATCA_RX_NO_RESPONSE);
         return ATCA_RX_NO_RESPONSE;
     }
+    printbuf(data, 4);
 
     return hal_check_wake(data, 4);
 }
@@ -2391,6 +2392,7 @@ void sha204h_calculate_crc_chain(uint8_t length, uint8_t *data, uint8_t *crc)
 //store
 uint8_t atsha204_device_personalization(void) 
 {
+    int i=0;
 	static uint8_t sha204_lib_return = SHA204_SUCCESS;
 	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
 	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
@@ -2398,7 +2400,6 @@ uint8_t atsha204_device_personalization(void)
 	struct sha204_write_parameters write_parameters;	
 	struct sha204_read_parameters read_parameters;
 	struct sha204_lock_parameters lock_parameters;
-	
 
 	// Wake the device, validate its presence and put it back to sleep.
 	//sha204_lib_return |= atsha204_wakeup_and_validate_device();
@@ -2406,6 +2407,7 @@ uint8_t atsha204_device_personalization(void)
 
 	if(SHA204_SUCCESS != sha204_lib_return)
 	{
+        printf("wake up fail\n");
 		return sha204_lib_return;
 	}
 
@@ -2432,139 +2434,36 @@ uint8_t atsha204_device_personalization(void)
 	//-----------tony comment:ATSHA204 side operate----------------------------
 	//tony comment: personalization step 2-----
 	// *** SLOT CONFIGURATION ***
-	// Slots 0 and 1
-	write_parameters.address = 4 * SLOT_CONFIG_0_1_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_00_01;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
+        sha204_lib_return |= sha204p_wakeup();
+    for(i=0; i<8; i++) {
+        write_parameters.address = 4 * (SLOT_CONFIG_0_1_ADDRESS + i);
+        write_parameters.new_value = SLOT_CONFIG[i];
+        sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 
-	// Slots 2 and 3
-	write_parameters.address = 4 * SLOT_CONFIG_2_3_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_02_03;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Slots 4 and 5
-	write_parameters.address = 4 * SLOT_CONFIG_4_5_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_04_05;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Slots 6 and 7
-	write_parameters.address = 4 * SLOT_CONFIG_6_7_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_06_07;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Slots 8 and 9
-	write_parameters.address = 4 * SLOT_CONFIG_8_9_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_08_09;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Slots 10 and 11
-	write_parameters.address = 4 * SLOT_CONFIG_10_11_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_10_11;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Slots 12 and 13
-	write_parameters.address = 4 * SLOT_CONFIG_12_13_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_12_13;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();
-
-	// Slots 14 and 15
-	write_parameters.address = 4 * SLOT_CONFIG_14_15_ADDRESS;
-	write_parameters.new_value = SLOT_CONFIG_14_15;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
+        printf("ret = 0x%x\n", sha204_lib_return);
+    }
+        sha204_lib_return |= sha204p_sleep();	
 
 	// *** USE FLAG and UPDATE COUNT Region
-	// Slots 0 and 1
-	write_parameters.address = 4 * SLOT_0_1_USE_UPDATE_ADDRESS;
-	write_parameters.new_value = SLOT_0_1_USE_UPDATE;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-	
-	// Slots 2 and 3
-	write_parameters.address = 4 * SLOT_2_3_USE_UPDATE_ADDRESS;
-	write_parameters.new_value = SLOT_2_3_USE_UPDATE;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Slots 4 and 5
-	write_parameters.address = 4 * SLOT_4_5_USE_UPDATE_ADDRESS;
-	write_parameters.new_value = SLOT_4_5_USE_UPDATE;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-
-
-	// Slots 6 and 7
-	write_parameters.address = 4 * SLOT_6_7_USE_UPDATE_ADDRESS;
-	write_parameters.new_value = SLOT_6_7_USE_UPDATE;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();
-
+    for(i=0; i<4; i++) {
+        write_parameters.address = 4 * (i+SLOT_0_1_USE_UPDATE_ADDRESS);
+        write_parameters.new_value = SLOT_USE_UPDATE[i];
+        sha204_lib_return |= sha204p_wakeup();
+        sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
+        sha204_lib_return |= sha204p_sleep();	
+    }
 	
 	//-----------tony comment:ATSHA204 side operate----------------------------
 	//tony comment: personalization step 3-----
 	// *** LAST KEY USE Region ***
 	// First word
-	write_parameters.address = 4* (LAST_KEY_USE_ADDRESS + 0);
-	write_parameters.new_value = &LAST_KEY_USE[0];
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-	
-	// Second word
-	write_parameters.address = 4 * (LAST_KEY_USE_ADDRESS+1);
-	write_parameters.new_value = &LAST_KEY_USE[4];
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Third word
-	write_parameters.address = 4 * (LAST_KEY_USE_ADDRESS + 2);
-	write_parameters.new_value = &LAST_KEY_USE[8];
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
-	
-	// Fourth word
-	write_parameters.address = 4 * (LAST_KEY_USE_ADDRESS + 3);
-	write_parameters.new_value = &LAST_KEY_USE[12];
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();	
+    for(i=0; i<4; i++) {
+        write_parameters.address = 4* (LAST_KEY_USE_ADDRESS + i);
+        write_parameters.new_value = LAST_KEY_USE[i];
+        sha204_lib_return |= sha204p_wakeup();
+        sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
+        sha204_lib_return |= sha204p_sleep();	
+    }
 
 	//-----------tony comment:ATSHA204 side operate----------------------------
 	//tony comment: personalization step 4-----	
@@ -2641,134 +2540,13 @@ uint8_t atsha204_device_personalization(void)
 	write_parameters.zone = SHA204_ZONE_DATA | SHA204_ZONE_COUNT_FLAG;
 	write_parameters.mac = NULL;
 
-	// Write initial content for slot 0
-	write_parameters.address = 4 * SLOT_0_ADDRESS;
-	write_parameters.new_value = SLOT_00_CONTENT;	
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 1	
-	write_parameters.address = 4 * SLOT_1_ADDRESS;
-	write_parameters.new_value = SLOT_01_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 2
-	write_parameters.address = 4 * SLOT_2_ADDRESS;
-	write_parameters.new_value = SLOT_02_CONTENT;	
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 3	
-	write_parameters.address = 4 * SLOT_3_ADDRESS;
-	write_parameters.new_value = SLOT_03_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 4
-	write_parameters.address = 4 * SLOT_4_ADDRESS;
-	write_parameters.new_value = SLOT_04_CONTENT;	
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 5	
-	write_parameters.address = 4 * SLOT_5_ADDRESS;
-	write_parameters.new_value = SLOT_05_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 6
-	write_parameters.address = 4 * SLOT_6_ADDRESS;
-	write_parameters.new_value = SLOT_06_CONTENT;	
-
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 7	
-	write_parameters.address = 4 * SLOT_7_ADDRESS;
-	write_parameters.new_value = SLOT_07_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Write initial content for slot 8
-	write_parameters.address = 4 * SLOT_8_ADDRESS;
-	write_parameters.new_value = SLOT_08_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();	
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 9	
-	write_parameters.address = 4 * SLOT_9_ADDRESS;
-	write_parameters.new_value = SLOT_09_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();			
-
-	// Write initial content for slot 10	
-	write_parameters.address = 4 * SLOT_10_ADDRESS;
-	write_parameters.new_value = SLOT_10_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 11
-	write_parameters.address = 4 * SLOT_11_ADDRESS;
-	write_parameters.new_value = SLOT_11_CONTENT;	
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 12	
-	write_parameters.address = 4 * SLOT_12_ADDRESS;
-	write_parameters.new_value = SLOT_12_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 13
-	write_parameters.address = 4 * SLOT_13_ADDRESS;
-	write_parameters.new_value = SLOT_13_CONTENT;	
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();		
-
-	// Write initial content for slot 14	
-	write_parameters.address = 4 * SLOT_14_ADDRESS;
-	write_parameters.new_value = SLOT_14_CONTENT;
-	
-	sha204_lib_return |= sha204p_wakeup();
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();	
-
-	// Write initial content for slot 15
-	write_parameters.address = 4 *SLOT_15_ADDRESS;
-	write_parameters.new_value = SLOT_15_CONTENT;	
-
-	sha204_lib_return |= sha204p_wakeup();	
-	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();	
+    for (i=0; i<16; i++) {
+        write_parameters.address = 4 * i;
+        write_parameters.new_value = SLOT_CONTENT[i];
+        sha204_lib_return |= sha204p_wakeup();
+        sha204_lib_return |= sha204m_write(&write_parameters);
+        sha204_lib_return |= sha204p_sleep();		
+    }
 
 	//-----------tony comment:ATSHA204 side operate----------------------------
 	//tony comment: personalization step 7-----		
@@ -3170,6 +2948,7 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	return sha204_lib_return;
 }
 
+#if 0
 //========================================================================================================================
 uint8_t atsha204_slot02_personalization(void) 
 {
@@ -3419,6 +3198,7 @@ uint8_t atsha204_slot02_personalization(void)
 
 	return sha204_lib_return;
 }
+#endif
 
 int get_random(uint8_t key[32])
 {
@@ -3439,11 +3219,11 @@ int get_random(uint8_t key[32])
     return SHA204_COMM_FAIL;
 }
 
-uint8_t authkey[16][32];
+extern uint8_t SLOT_CONTENT[16][32];
 
 void import_key(uint8_t key[16][32])
 {
-    memcpy(authkey, key, sizeof(authkey));
+    memcpy(SLOT_CONTENT, key, sizeof(SLOT_CONTENT));
 }
 
 int get_authentication(void)
@@ -3483,7 +3263,8 @@ int get_authentication(void)
     get_random(num_in);
     sha204p_sleep();		
 
-    retval = atsha204_mac(key_id, authkey[key_id], num_in, challenge);
+    printbuf(SLOT_CONTENT[key_id], 32);
+    retval = atsha204_mac(key_id, SLOT_CONTENT[key_id], num_in, challenge);
     close(f_i2c);
     return retval;
 }
@@ -3538,13 +3319,8 @@ int store_key(void)
         return -2;
     }
 
-    if (sha204c_wakeup(NULL)) {
-        printf("wake up fail\n");
-        close(f_i2c);
-        return -1;
-    }
     retval = atsha204_device_personalization();
-    sha204p_sleep();		
+
     close(f_i2c);
     return retval;
 }

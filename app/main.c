@@ -19,11 +19,20 @@ int main(int argc, char **argv)
     int errcnt = 0;
 
     uint8_t authkey[16][32];
+#if 1
     uint8_t key[32] = {
     0x0f, 0x9a, 0x3e, 0xa6, 0xdd, 0x60, 0xc1, 0xe9, 0x87, 0x89, 0x0c, 0x75, 0x79, 0x68, 0x3d, 0x74, 
     0x40, 0x6c, 0xb4, 0xa7, 0x92, 0xfc, 0xf4, 0xba, 0xc7, 0x69, 0xa7, 0xe2, 0x39, 0x19, 0x2d, 0x03, 
     };
-
+#else
+    const uint8_t key[] = { 
+        0x38, 0x80, 0xe6, 0x3d, 0x49, 0x68, 0xad, 0xe5,
+        0xd8, 0x22, 0xc0, 0x13, 0xfc, 0xc3, 0x23, 0x84,
+        0x5d, 0x1b, 0x56, 0x9f, 0xe7, 0x05, 0xb6, 0x00,
+        0x06, 0xfe, 0xec, 0x14, 0x5a, 0x0d, 0xb1, 0xe3
+    };
+#endif
+    
     if (argc >= 2) {
         if (!memcmp("store", argv[1], strlen(argv[1]))) {
             printf("config and store key!\n");
@@ -32,6 +41,9 @@ int main(int argc, char **argv)
         } else if (!memcmp("rollkey", argv[1], strlen(argv[1]))) {
             printf("roll key!\n");
             roll_key(1);
+        } else if (!memcmp("configdump", argv[1], strlen(argv[1]))) {
+            printf("config dump!\n");
+            sha204_config_dump_all();
         } else if (!memcmp("sn", argv[1], strlen(argv[1]))) {
             printf("read sn!\n");
             sha204_read_sn();
@@ -46,9 +58,9 @@ int main(int argc, char **argv)
                 printf("using keyid %d\n", keyid);
             }
             memcpy(&authkey[keyid][0], key, sizeof(key));
-            import_key(authkey);
+            //import_key(authkey);
             while (i < count) {
-                retval = get_authentication();
+                retval = get_authentication(keyid);
                 i++;
                 if (retval != 0) {
                     errcnt ++;

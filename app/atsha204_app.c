@@ -49,11 +49,6 @@ void mdelay(int ms)
     usleep(1000*ms);
 }
 
-uint8_t sha204p_wakeup(void)
-{
-	return SHA204_SUCCESS;
-}
-
 #ifdef USING_DEV_I2C
 #define ATSHA204_DRIVER_NAME    "/dev/i2c-2"
 uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
@@ -117,10 +112,11 @@ uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
     //close(f_i2c);
     return SHA204_SUCCESS;
 }
+
 uint8_t hal_check_wake(const uint8_t* response, int response_size)
 {
-    const uint8_t expected_response[4] = { 0x04, 0x11, 0x33, 0x43  };
-    uint8_t selftest_fail_resp[4] = { 0x04, 0x07, 0xC4, 0x40  };
+    const uint8_t expected_response[4] = { 0x04, 0x11, 0x33, 0x43};
+    uint8_t selftest_fail_resp[4] = { 0x04, 0x07, 0xC4, 0x40};
 
     if (response_size != 4)
     {   
@@ -136,7 +132,7 @@ uint8_t hal_check_wake(const uint8_t* response, int response_size)
     }   
     return SHA204_COMM_FAIL;
 }
-uint8_t sha204c_wakeup(uint8_t *response)
+uint8_t sha204c_wakeup(void)
 {
     uint8_t data[4];
     uint8_t dummy_byte = 0;
@@ -167,43 +163,24 @@ uint8_t sha204c_wakeup(uint8_t *response)
         printf("read fail 0x%x\n", ATCA_RX_NO_RESPONSE);
         return ATCA_RX_NO_RESPONSE;
     }
-    printbuf(data, 4);
+    //printbuf(data, 4);
 
     return hal_check_wake(data, 4);
 }
 
-uint8_t sha204_read_sn(void)
+int config_dump_cmd(uint8_t num)
 {
     uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
     uint8_t count;
     uint8_t buf[64];
     int retval;
-
-    if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
-        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
-        return -1;
-    }
-    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
-    if (retval < 0) {
-        printf("file lock fail\n");
-        close(f_i2c);
-        return -2;
-    }
-    //printf("wake up %d\n", sha204c_wakeup(NULL));
-    if (sha204c_wakeup(NULL)) {
-        printf("wake up fail\n");
-        close(f_i2c);
-        return -1;
-    } else {
-        printf("wake up ok\n");
-    }
-
+    num %= 0x16;
     count = 7;
     buf[0] = word_addr;
     buf[1] = count;//count
     buf[2] = 0x02;//opcode read
     buf[3] = 0x00;//parma1
-    buf[4] = 0x00;//parma2
+    buf[4] = num;//parma2
     buf[5] = 0x00;//parma2
 
     sha204c_calculate_crc(count-2, &buf[1], &buf[count-1]);
@@ -223,97 +200,55 @@ uint8_t sha204_read_sn(void)
         return SHA204_COMM_FAIL;
     }
     
+    usleep(10000);
     memset(buf, 0, sizeof(buf));
-    sha204p_receive_response(sizeof(buf), buf);
+    retval = sha204p_receive_response(sizeof(buf), buf);
     printbuf(buf, buf[0]);
-    
+}
+
+int sha204_config_dump(uint8_t num)
+{
+    int retval;
+    int i;
+    if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
+        printf("open %s fail\n", ATSHA204_DRIVER_NAME);
+        perror("err");
+        return -1;
+    }
+    retval = flock(f_i2c, LOCK_EX | LOCK_NB);
+    if (retval < 0) {
+        printf("file lock fail\n");
+        close(f_i2c);
+        return -2;
+    }
+    if (sha204c_wakeup()) {
+        printf("wake up fail\n");
+        close(f_i2c);
+        return -1;
+    } else {
+        printf("wake up ok\n");
+    }
+    for(i=0; i<num; i++)
+        config_dump_cmd(i);
     sha204p_sleep();		
     close(f_i2c);
-    return SHA204_SUCCESS;
+    return retval;
 }
+
+void sha204_read_sn(void)
+{
+    sha204_config_dump(1);
+}
+
+void sha204_config_dump_all(void)
+{
+    sha204_config_dump(0x16);
+    return;
+}
+
+
 #else //using atsha204.ko
 #define ATSHA204_DRIVER_NAME    "/dev/msic-atsha204a"
-uint8_t sha204p_send(uint8_t word_address, uint8_t count, uint8_t *buffer)
-{
-    struct atsha204_pack pack;
-    uint8_t *buf = pack.data;
-    pack.device_addr = ATSHA204A_DEVICE_ADDR;
-
-    buf[0] = word_address; //word addr
-    memcpy(&buf[1], buffer, count);
-    pack.len = count+1;
-    ioctl(f_i2c, ATSHA204A_WRITE, &pack);
-    
-    return SHA204_SUCCESS;
-}
-
-uint8_t sha204p_receive_response(uint8_t size, uint8_t *response)
-{
-    struct atsha204_pack pack;
-    pack.device_addr = ATSHA204A_DEVICE_ADDR;
-
-    ioctl(f_i2c, ATSHA204A_READ, &pack);
-
-    //printf("recv len = %d:\n", pack.len);
-    //printbuf(pack.data, pack.len);
-
-    if(!response) {
-        return -1;       
-    }
-
-    memcpy(response, pack.data, pack.len);
-
-    return SHA204_SUCCESS;
-}
-
-uint8_t sha204c_wakeup(uint8_t *response)
-{   
-    int count;
-    struct atsha204_pack pack;
-    uint8_t *buf = pack.data;
-    pack.device_addr = 0x00;
-
-    printf("enter wake up!\n");
-    buf[0] = 0; //word addr
-    buf[1] = 0; //word addr
-    count = 1;
-    pack.len = count+1;
-    ioctl(f_i2c, ATSHA204A_WRITE, &pack);
-
-    usleep(3000);
-    sha204p_receive_response(sizeof(pack.data), pack.data);
-    if (pack.data[1] == 0x11) {
-        printf("wake up ok!\n");
-    }
-
-    return sha204p_wakeup();
-}
-
-uint8_t sha204_read_sn(void)
-{
-    struct atsha204_pack pack;
-    uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
-    uint8_t *buf = pack.data;
-    uint8_t count;
-    pack.device_addr = ATSHA204A_DEVICE_ADDR;
-
-    count = 7;
-    buf[0] = word_addr;
-    buf[1] = count;//count
-    buf[2] = 0x02;//opcode read
-    buf[3] = 0x00;//parma1
-    buf[4] = 0x00;//parma2
-    buf[5] = 0x00;//parma2
-
-    sha204c_calculate_crc(count-2, &buf[1], &buf[count-1]);
-    pack.len = count+1;
-
-    ioctl(f_i2c, ATSHA204A_WRITE, &pack);
-    sha204p_receive_response(sizeof(pack.data), pack.data);
-    
-    return SHA204_SUCCESS;
-}
-
 #endif
 
 
@@ -1398,7 +1333,7 @@ uint8_t atsha204_wakeup_and_validate_device(void)
 	/* Wake up the device or abort operation if unsuccessful */
 	while(tries) 
 	{
-		sha204_lib_return |= sha204p_wakeup();
+		sha204_lib_return |= sha204c_wakeup();
 		if(sha204_lib_return == SHA204_SUCCESS) 
 		{
 			break;		
@@ -2387,12 +2322,17 @@ void sha204h_calculate_crc_chain(uint8_t length, uint8_t *data, uint8_t *crc)
 	crc[0] = (uint8_t) (crc_register & 0x00FF);
 	crc[1] = (uint8_t) (crc_register >> 8);
 }
-//========================================================================================================================
-//atsha204_device_personalization.c
-//store
-uint8_t atsha204_device_personalization(void) 
+
+enum LOCK_TYPE {
+    CONFIG_LOCKED = 1,
+    DATA_LOCKED,
+    ALL_LOCKED
+};
+
+int check_is_locked(void)
 {
-    int i=0;
+    int ret = 0;
+    int i;
 	static uint8_t sha204_lib_return = SHA204_SUCCESS;
 	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
 	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
@@ -2401,189 +2341,222 @@ uint8_t atsha204_device_personalization(void)
 	struct sha204_read_parameters read_parameters;
 	struct sha204_lock_parameters lock_parameters;
 
-	// Wake the device, validate its presence and put it back to sleep.
-	//sha204_lib_return |= atsha204_wakeup_and_validate_device();
-	sha204_lib_return |= sha204c_wakeup(wakeup_response_buffer);
+    printf("check config lock\n");
+	sha204_lib_return |= sha204c_wakeup();
+    printf("wakeup ret = 0x%x\n", sha204_lib_return);
 
-	if(SHA204_SUCCESS != sha204_lib_return)
-	{
-        printf("wake up fail\n");
-		return sha204_lib_return;
-	}
+	read_parameters.tx_buffer = transmit_buffer;
+	read_parameters.rx_buffer = response_buffer;
 
-	/*!
-	 *	*** ENTER PERSONALIZATON PREFERENCES INTO THE CONFIGURATION MEMORY ***
-	 */
-	//-----------tony comment:ATSHA204 side operate---------------------------
-	//tony comment: personalization step 1-----	 
-	// Device Operation Parameters
+	read_parameters.zone = SHA204_ZONE_CONFIG;
+	read_parameters.address = 4 * (CONFIG_BLOCK_2_ADDRESS + 5);
+	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
+    //printbuf(response_buffer, response_buffer[SHA204_BUFFER_POS_COUNT]);
+
+	sha204_lib_return |= sha204p_sleep();
+
+    if (!sha204_lib_return && response_buffer[4] != 0x55) {
+        ret = CONFIG_LOCKED;
+    }
+    if (!sha204_lib_return && response_buffer[3] != 0x55) {
+        ret = DATA_LOCKED;
+    }
+    return ret;
+}
+int lock_config(void)
+{
+    int i;
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
+
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
+
+    printf("lock config..\n");
+	sha204_lib_return |= sha204c_wakeup();
+    printf("wakeup ret = 0x%x\n", sha204_lib_return);
+
+    lock_parameters.tx_buffer = transmit_buffer;
+    lock_parameters.rx_buffer = response_buffer;
+    lock_parameters.zone = LOCK_ZONE_NO_CRC;
+    lock_parameters.summary = LOCK_PARAM2_NO_CRC;
+    sha204_lib_return |= sha204m_lock(&lock_parameters);
+    printf("lock config ret = 0x%x\n", sha204_lib_return);
+
+	sha204_lib_return |= sha204p_sleep();
+
+    return sha204_lib_return;
+    
+}
+int write_config(void)
+{
+    int i;
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
+
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
+
+    printf("write config..\n");
+	sha204_lib_return |= sha204c_wakeup();
+    printf("wakeup ret = 0x%x\n", sha204_lib_return);
+
+    /******************* write configuration ******************/
 	write_parameters.tx_buffer = transmit_buffer;
 	write_parameters.rx_buffer = response_buffer;
 	write_parameters.zone = SHA204_ZONE_CONFIG;
 	write_parameters.mac = NULL;
-
 	memset(response_buffer, 0, sizeof(response_buffer));
-	
 	write_parameters.address = 4 * DEVICE_MODES_ADDRESS;//change double word address to byte word address
 	write_parameters.new_value = &DEVICE_MODES[0];
-	
-	sha204_lib_return |= sha204p_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-	sha204_lib_return |= sha204p_sleep();
 
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 2-----
-	// *** SLOT CONFIGURATION ***
-        sha204_lib_return |= sha204p_wakeup();
+    /******* slot configuration ******/
     for(i=0; i<8; i++) {
         write_parameters.address = 4 * (SLOT_CONFIG_0_1_ADDRESS + i);
         write_parameters.new_value = SLOT_CONFIG[i];
         sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-
-        printf("ret = 0x%x\n", sha204_lib_return);
+        printf("write config ret = 0x%x\n", sha204_lib_return);
     }
-        sha204_lib_return |= sha204p_sleep();	
 
-	// *** USE FLAG and UPDATE COUNT Region
+	// *** use flag and update count region
     for(i=0; i<4; i++) {
         write_parameters.address = 4 * (i+SLOT_0_1_USE_UPDATE_ADDRESS);
         write_parameters.new_value = SLOT_USE_UPDATE[i];
-        sha204_lib_return |= sha204p_wakeup();
         sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-        sha204_lib_return |= sha204p_sleep();	
     }
 	
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 3-----
 	// *** LAST KEY USE Region ***
-	// First word
     for(i=0; i<4; i++) {
         write_parameters.address = 4* (LAST_KEY_USE_ADDRESS + i);
         write_parameters.new_value = LAST_KEY_USE[i];
-        sha204_lib_return |= sha204p_wakeup();
         sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
-        sha204_lib_return |= sha204p_sleep();	
     }
 
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 4-----	
-	//*	*** OPTIONAL READ and VERIFY ****
-	// The read data is contained in the response buffer.  Note that the buffer does not accumulate data. It's content is refreshed on each read so break and inspect buffer after each command execution.
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204p_sleep();
+    return sha204_lib_return;
+}
+int write_slot(void)
+{
+    int i;
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
 
-	read_parameters.tx_buffer = transmit_buffer;
-	read_parameters.rx_buffer = response_buffer;
-	read_parameters.zone = SHA204_ZONE_CONFIG | SHA204_ZONE_COUNT_FLAG;
-	read_parameters.address = 4 * CONFIG_BLOCK_0_ADDRESS;
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
 
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 32 bytes	
 
-	read_parameters.address = 4 * CONFIG_BLOCK_1_ADDRESS;
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 32 bytes	
-
-	read_parameters.zone = SHA204_ZONE_CONFIG;
-	read_parameters.address = 4 * (CONFIG_BLOCK_2_ADDRESS + 0);
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
-
-	read_parameters.zone = SHA204_ZONE_CONFIG;
-	read_parameters.address = 4 * (CONFIG_BLOCK_2_ADDRESS + 1);
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
-	
-	read_parameters.zone = SHA204_ZONE_CONFIG;
-	read_parameters.address =4 *  (CONFIG_BLOCK_2_ADDRESS + 2);
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
-
-	read_parameters.zone = SHA204_ZONE_CONFIG;
-	read_parameters.address = 4 * (CONFIG_BLOCK_2_ADDRESS + 3);
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
-
-	read_parameters.zone = SHA204_ZONE_CONFIG;
-	read_parameters.address = 4 * (CONFIG_BLOCK_2_ADDRESS + 4);
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
-
-	read_parameters.zone = SHA204_ZONE_CONFIG;
-	read_parameters.address = 4 * (CONFIG_BLOCK_2_ADDRESS + 5);
-
-	sha204_lib_return |= sha204m_read(&read_parameters);	//read 4 bytes	
-
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 5-----	
-	/*!
-	 *	*** LOCK CONFIG ***
-	 **********************
-	 *
-	 *	Forever lock the custom configuration from future modification.  Writing of Data or OTP regions requires prior execution of this command.
-	 */
-	 lock_parameters.tx_buffer = transmit_buffer;
-	 lock_parameters.rx_buffer = response_buffer;
-	 lock_parameters.zone = LOCK_ZONE_NO_CRC;
-	 lock_parameters.summary = LOCK_PARAM2_NO_CRC;
-	 
-	 sha204_lib_return |= sha204m_lock(&lock_parameters);
-
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 6-----	
-	/*!
-	 *	*** WRITE INITIAL DATA TO DATA SLOTS ***
-	 *******************************************
-	 *
-	 *  Write initial content to data slots.  This is the only opportunity to to write non-modifiable information e.g. model numbers and certain keys.
-	 */
 	write_parameters.tx_buffer = transmit_buffer;
 	write_parameters.rx_buffer = response_buffer;
 	write_parameters.zone = SHA204_ZONE_DATA | SHA204_ZONE_COUNT_FLAG;
 	write_parameters.mac = NULL;
 
     for (i=0; i<16; i++) {
-        write_parameters.address = 4 * i;
+    printf("write slot..\n");
+	sha204_lib_return |= sha204c_wakeup();
+    printf("wakeup ret = 0x%x\n", sha204_lib_return);
+        write_parameters.address = 4 * (i*0x08);
         write_parameters.new_value = SLOT_CONTENT[i];
-        sha204_lib_return |= sha204p_wakeup();
         sha204_lib_return |= sha204m_write(&write_parameters);
-        sha204_lib_return |= sha204p_sleep();		
+        printf("write key ret = 0x%x\n", sha204_lib_return);
+	sha204_lib_return |= sha204p_sleep();
+
     }
 
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 7-----		
-	/*!
-	 *	*** WRITE INITIAL OTP DATA INTO THE OTP REGION ***
-	 *****************************************************
-	 *  Write initial information to the OTP region.  This is the only opportunity to do so.  After locking data and OTP regions, write accesses to this region will be controlled by 
-	 *  custom access privileges defined in the configuration region.
-	 */
+    return sha204_lib_return;
+}
+
+int lock_data(void)
+{
+    int i;
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
+
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
+
+    printf("lock data..\n");
+	sha204_lib_return |= sha204c_wakeup();
+    printf("wakeup ret = 0x%x\n", sha204_lib_return);
+
+	write_parameters.tx_buffer = transmit_buffer;
+	write_parameters.rx_buffer = response_buffer;
+
+	write_parameters.mac = NULL;
 	write_parameters.zone = SHA204_ZONE_OTP| SHA204_ZONE_COUNT_FLAG; 
 	write_parameters.address = 4 * OTP_BLOCK_0_ADDRESS;
 	write_parameters.new_value = &OTP[0];
-	
-	sha204_lib_return |= sha204p_wakeup();	
 	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();	
 
 	write_parameters.address = 4 * OTP_BLOCK_1_ADDRESS;
 	write_parameters.new_value = &OTP[8];	
-	sha204_lib_return |= sha204p_wakeup();	
 	sha204_lib_return |= sha204m_write(&write_parameters);
-	sha204_lib_return |= sha204p_sleep();	
 	
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 8-----	
-	/*!
-	 *	*** LOCK VALUE ***
-	 *********************
-	 *
-	 *	Forever lock the data and OTP regions.  After lock data, access to these regions will be controlled by access rights defined in the configuration region.
-	 */
-	 lock_parameters.zone = LOCK_ZONE_NO_CONFIG|LOCK_ZONE_NO_CRC;
-	 lock_parameters.summary = LOCK_PARAM2_NO_CRC;
-	 
-	sha204_lib_return |= sha204p_wakeup();	
+    lock_parameters.tx_buffer = transmit_buffer;
+    lock_parameters.rx_buffer = response_buffer;
+    lock_parameters.zone = LOCK_ZONE_NO_CONFIG|LOCK_ZONE_NO_CRC;
+    lock_parameters.summary = LOCK_PARAM2_NO_CRC;
 	sha204_lib_return |= sha204m_lock(&lock_parameters);	
-	sha204_lib_return |= sha204p_sleep();		
+    printf("lock data over..\n");
+
+	sha204_lib_return |= sha204p_sleep();
+
+    return sha204_lib_return;
+}
+
+
+uint8_t atsha204_device_personalization(void) 
+{
+
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
+
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
+
+
+    /* write config*/
+    if (CONFIG_LOCKED <= check_is_locked()) {
+        printf("config already locked!\n");
+    } else {
+        if (write_config()) {
+            printf("write config fail!\n");
+            return 0;
+        }
+
+        if (lock_config()) {
+            printf("lock config fail!\n");
+            return 0;
+        }
+    }
+
+    /* lock data */
+    if (DATA_LOCKED <= check_is_locked()) {
+        printf("data already locked!\n");
+    } else {
+        /*write slot*/
+        if (write_slot()) {
+            printf("write slot fail!\n");
+            return 0;
+        }
+#if 1
+        if (!lock_data()) {
+            printf("lock data ok\n");
+        }
+#endif
+    }
+
+
 	/*!
 	 *	*** VERIFY SUCCESSFUL COMPLETION OF THE PERSONALIZATION PROCESS ***
 	 **********************************************************************
@@ -2600,14 +2573,16 @@ uint8_t atsha204_device_personalization(void)
 	read_parameters.zone = SHA204_ZONE_CONFIG;
 	read_parameters.address = 4 * EXTRA_SELECTOR_LOCK_ADDRESS;	
 
-	sha204_lib_return |= sha204p_wakeup();	
+	sha204_lib_return |= sha204c_wakeup();	
 	sha204_lib_return |= sha204m_read(&read_parameters);
 	sha204_lib_return |= sha204p_sleep();		
 	
 	sha204_lib_return |= response_buffer[3] /* LockValue */ & response_buffer[4] /* LockConfig */; 
+    printf("read ret = 0x%x\n", sha204_lib_return);
+
 	#endif
 
-	return sha204_lib_return;
+	return 0;
 }
 
 
@@ -2633,9 +2608,8 @@ uint8_t atsha204_enc_write(uint16_t slot_to_write, uint8_t* clear_data, uint16_t
 	//tony comment: encrypt write step 1
 	// Wake the device, validate its presence and put it back to sleep.
 	//sha204_lib_return |= atsha204_wakeup_and_validate_device();
-	sha204_lib_return |= sha204c_wakeup(wakeup_response_buffer);
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 
 	if(SHA204_SUCCESS!=sha204_lib_return)
 	{
@@ -2742,8 +2716,7 @@ uint8_t atsha204_enc_read(uint16_t slot_to_read, uint8_t* clear_data, uint16_t k
 	//tony comment: encrypt read step 1
 	// Wake the device, validate its presence and put it back to sleep.
 	//sha204_lib_return |= atsha204_wakeup_and_validate_device();
-	sha204_lib_return |= sha204c_wakeup(wakeup_response_buffer);
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 
 	if(SHA204_SUCCESS!=sha204_lib_return)
 	{
@@ -2870,9 +2843,8 @@ uint8_t atsha204_mac(uint16_t key_id,uint8_t* secret_key, uint8_t* NumIn, uint8_
 	//tony comment: MAC step 1	
 	// Wake the device, validate its presence and put it back to sleep.
 	//sha204_lib_return |= atsha204_wakeup_and_validate_device();
-	sha204_lib_return |= sha204c_wakeup(wakeup_response_buffer);
 	
-	//sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	if(SHA204_SUCCESS!=sha204_lib_return)
 	{
 		printf("sha204 wakeup failed\n");
@@ -2986,7 +2958,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * DEVICE_MODES_ADDRESS;//change double word address to byte word address
 	write_parameters.new_value = &DEVICE_MODES[0];
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();
 
@@ -2994,7 +2966,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * SLOT_CONFIG_2_3_ADDRESS;
 	write_parameters.new_value = SLOT_CONFIG_02_03;
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();	
 
@@ -3005,7 +2977,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * SLOT_2_3_USE_UPDATE_ADDRESS;
 	write_parameters.new_value = SLOT_2_3_USE_UPDATE;
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();	
 	
@@ -3016,7 +2988,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4* (LAST_KEY_USE_ADDRESS + 0);
 	write_parameters.new_value = &LAST_KEY_USE[0];
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();	
 	
@@ -3024,7 +2996,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * (LAST_KEY_USE_ADDRESS+1);
 	write_parameters.new_value = &LAST_KEY_USE[4];
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();	
 
@@ -3032,7 +3004,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * (LAST_KEY_USE_ADDRESS + 2);
 	write_parameters.new_value = &LAST_KEY_USE[8];
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();	
 	
@@ -3040,7 +3012,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * (LAST_KEY_USE_ADDRESS + 3);
 	write_parameters.new_value = &LAST_KEY_USE[12];
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);//write 4 bytes
 	sha204_lib_return |= sha204p_sleep();	
 
@@ -3048,7 +3020,7 @@ uint8_t atsha204_slot02_personalization(void)
 	//tony comment: personalization step 4-----	
 	//*	*** OPTIONAL READ and VERIFY ****
 	// The read data is contained in the response buffer.  Note that the buffer does not accumulate data. It's content is refreshed on each read so break and inspect buffer after each command execution.
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 
 	read_parameters.tx_buffer = transmit_buffer;
 	read_parameters.rx_buffer = response_buffer;
@@ -3124,7 +3096,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * SLOT_2_ADDRESS;
 	write_parameters.new_value = SLOT_02_CONTENT;	
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);
 	sha204_lib_return |= sha204p_sleep();		
 
@@ -3132,7 +3104,7 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * SLOT_3_ADDRESS;
 	write_parameters.new_value = SLOT_03_CONTENT;
 	
-	sha204_lib_return |= sha204p_wakeup();
+	sha204_lib_return |= sha204c_wakeup();
 	sha204_lib_return |= sha204m_write(&write_parameters);
 	sha204_lib_return |= sha204p_sleep();		
 
@@ -3149,13 +3121,13 @@ uint8_t atsha204_slot02_personalization(void)
 	write_parameters.address = 4 * OTP_BLOCK_0_ADDRESS;
 	write_parameters.new_value = &OTP[0];
 	
-	sha204_lib_return |= sha204p_wakeup();	
+	sha204_lib_return |= sha204c_wakeup();	
 	sha204_lib_return |= sha204m_write(&write_parameters);
 	sha204_lib_return |= sha204p_sleep();	
 
 	write_parameters.address = 4 * OTP_BLOCK_1_ADDRESS;
 	write_parameters.new_value = &OTP[8];	
-	sha204_lib_return |= sha204p_wakeup();	
+	sha204_lib_return |= sha204c_wakeup();	
 	sha204_lib_return |= sha204m_write(&write_parameters);
 	sha204_lib_return |= sha204p_sleep();	
 	
@@ -3170,7 +3142,7 @@ uint8_t atsha204_slot02_personalization(void)
 	 lock_parameters.zone = LOCK_ZONE_NO_CONFIG|LOCK_ZONE_NO_CRC;
 	 lock_parameters.summary = LOCK_PARAM2_NO_CRC;
 	 
-	sha204_lib_return |= sha204p_wakeup();	
+	sha204_lib_return |= sha204c_wakeup();	
 	sha204_lib_return |= sha204m_lock(&lock_parameters);	
 	sha204_lib_return |= sha204p_sleep();		
 	/*!
@@ -3189,7 +3161,7 @@ uint8_t atsha204_slot02_personalization(void)
 	read_parameters.zone = SHA204_ZONE_CONFIG;
 	read_parameters.address = 4 * EXTRA_SELECTOR_LOCK_ADDRESS;	
 
-	sha204_lib_return |= sha204p_wakeup();	
+	sha204_lib_return |= sha204c_wakeup();	
 	sha204_lib_return |= sha204m_read(&read_parameters);
 	sha204_lib_return |= sha204p_sleep();		
 	
@@ -3199,6 +3171,52 @@ uint8_t atsha204_slot02_personalization(void)
 	return sha204_lib_return;
 }
 #endif
+
+void config_dump()
+{
+    int i=0;
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
+
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
+
+
+	read_parameters.tx_buffer = transmit_buffer;
+	read_parameters.rx_buffer = response_buffer;
+	read_parameters.zone = SHA204_ZONE_CONFIG;
+	read_parameters.address = 4 * CONFIG_BLOCK_0_ADDRESS;
+	memset(response_buffer, 0, sizeof(response_buffer));
+
+    sha204_lib_return |= sha204c_wakeup();
+	sha204_lib_return |= sha204m_read(&read_parameters);	//read 32 bytes	
+    printf("zone ret = 0x%x\n", sha204_lib_return);
+    printbuf(response_buffer, sizeof(response_buffer));
+
+    sha204_lib_return |= sha204p_sleep();	
+
+
+#if 0
+	//-----------tony comment:ATSHA204 side operate----------------------------
+	//tony comment: personalization step 2-----
+	// *** SLOT CONFIGURATION ***
+    sha204_lib_return |= sha204c_wakeup();
+    for(i=0; i<8; i++) {
+        read_parameters.address = 4 * (SLOT_CONFIG_0_1_ADDRESS + i);
+        sha204_lib_return |= sha204m_read(&read_parameters);//write 4 bytes
+
+        printf("ret = 0x%x\n", sha204_lib_return);
+        printbuf(response_buffer, sizeof(response_buffer));
+    }
+    sha204_lib_return |= sha204p_sleep();	
+#endif
+
+    return;
+}
+
+
 
 int get_random(uint8_t key[32])
 {
@@ -3226,14 +3244,21 @@ void import_key(uint8_t key[16][32])
     memcpy(SLOT_CONTENT, key, sizeof(SLOT_CONTENT));
 }
 
-int get_authentication(void)
+int get_authentication(int key_id)
 {
+    int i;
     int retry = 3;
     int retval;
-    int key_id = 2;
-    char num_in[32];
+    //char num_in[32];
+    char num_in[32] = { 
+        0x38, 0x80, 0xe6, 0x3d, 0x49, 0x68, 0xad, 0xe5,
+        0xd8, 0x22, 0xc0, 0x13, 0xfc, 0xc3, 0x23, 0x84,
+        0x5d, 0x1b, 0x56, 0x9f, 0xe7, 0x05, 0xb6, 0x00,
+        0x06, 0xfe, 0xec, 0x14, 0x5a, 0x0d, 0xb1, 0xe3
+    };
     char challenge[32]; /* MAC_MODE_PASSTHROUGH using this */
 
+    key_id %= 16;
     if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
         printf("open %s fail\n", ATSHA204_DRIVER_NAME);
         return -1;
@@ -3255,16 +3280,26 @@ int get_authentication(void)
         return -2;
     }
 
-    if (sha204c_wakeup(NULL)) {
+    if (sha204c_wakeup()) {
         printf("wake up fail\n");
         close(f_i2c);
         return -1;
     }
-    get_random(num_in);
+    //get_random(num_in);
     sha204p_sleep();		
-
-    printbuf(SLOT_CONTENT[key_id], 32);
+    
+    //printf("keyid = %d\n", key_id);
+    //printbuf(SLOT_CONTENT[key_id], 32);
+    
     retval = atsha204_mac(key_id, SLOT_CONTENT[key_id], num_in, challenge);
+
+#if 0
+    for (i=0; i<16; i++) {
+        retval = atsha204_mac(i, SLOT_CONTENT[i], num_in, challenge);
+        printf("retval = 0x%x, i =%d\n", retval, i);
+    }
+#endif
+
     close(f_i2c);
     return retval;
 }
@@ -3286,7 +3321,7 @@ int roll_key(uint32_t cnt)
         return -2;
     }
 
-    if (sha204c_wakeup(NULL)) {
+    if (sha204c_wakeup()) {
         printf("wake up fail\n");
         close(f_i2c);
         return -1;

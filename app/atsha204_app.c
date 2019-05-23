@@ -168,7 +168,7 @@ uint8_t sha204c_wakeup(void)
     return hal_check_wake(data, 4);
 }
 
-int config_dump_cmd(uint8_t num)
+int send_sn_package(uint8_t num)
 {
     uint8_t word_addr = SHA204_I2C_PACKET_FUNCTION_NORMAL;
     uint8_t count;
@@ -200,16 +200,13 @@ int config_dump_cmd(uint8_t num)
         return SHA204_COMM_FAIL;
     }
     
-    usleep(10000);
-    memset(buf, 0, sizeof(buf));
-    retval = sha204p_receive_response(sizeof(buf), buf);
-    printbuf(buf, buf[0]);
+    return retval;
 }
 
-int sha204_config_dump(uint8_t num)
+int sha204_config_dump(uint8_t num, uint8_t *data)
 {
     int retval;
-    int i;
+    uint8_t buf[64];
     if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
         printf("open %s fail\n", ATSHA204_DRIVER_NAME);
         perror("err");
@@ -225,25 +222,62 @@ int sha204_config_dump(uint8_t num)
         printf("wake up fail\n");
         close(f_i2c);
         return -1;
-    } else {
-        printf("wake up ok\n");
     }
-    for(i=0; i<num; i++)
-        config_dump_cmd(i);
+
+    send_sn_package(num);
+    usleep(1000);
+    memset(buf, 0, sizeof(buf));
+    retval = sha204p_receive_response(sizeof(buf), buf);
+    if (retval == SHA204_SUCCESS) {
+        if (data) {
+            memcpy(data, buf, buf[0]);
+        }
+        //printbuf(buf, buf[0]);
+    }
     sha204p_sleep();		
     close(f_i2c);
     return retval;
 }
 
-void sha204_read_sn(void)
+int sha204_read_sn(uint8_t sn[9])
 {
-    sha204_config_dump(1);
+    int retval;
+    uint8_t buf[64];
+
+    retval = sha204_config_dump(0, buf);
+    if (retval) {
+        return -1;
+    }
+    memcpy(&sn[0], &buf[1], 4);
+
+    retval = sha204_config_dump(2, buf);
+    if (retval) {
+        return -1;
+    }
+    memcpy(&sn[4], &buf[1], 4);
+
+    retval = sha204_config_dump(3, buf);
+    if (retval) {
+        return -1;
+    }
+    memcpy(&sn[8], &buf[1], 4);
+
+    return retval;
 }
 
-void sha204_config_dump_all(void)
+int sha204_config_dump_all(uint8_t *conf)
 {
-    sha204_config_dump(0x16);
-    return;
+    int i;
+    int retval;
+    uint8_t buf[64];
+
+    for(i=0; i<0x16; i++) {
+        retval = sha204_config_dump(i, buf);
+        //printf("retval[%d] = %d\n", i, retval);
+        memcpy(&conf[4*i], &buf[1], 4);
+    }
+
+    return retval;
 }
 
 
@@ -2513,30 +2547,20 @@ int lock_data(void)
 }
 
 
-uint8_t atsha204_device_personalization(void) 
+int atsha204_device_personalization(void) 
 {
-
-	static uint8_t sha204_lib_return = SHA204_SUCCESS;
-	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
-	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
-
-	struct sha204_write_parameters write_parameters;	
-	struct sha204_read_parameters read_parameters;
-	struct sha204_lock_parameters lock_parameters;
-
-
     /* write config*/
     if (CONFIG_LOCKED <= check_is_locked()) {
         printf("config already locked!\n");
     } else {
         if (write_config()) {
             printf("write config fail!\n");
-            return 0;
+            return -1;
         }
 
         if (lock_config()) {
             printf("lock config fail!\n");
-            return 0;
+            return -1;
         }
     }
 
@@ -2547,27 +2571,30 @@ uint8_t atsha204_device_personalization(void)
         /*write slot*/
         if (write_slot()) {
             printf("write slot fail!\n");
-            return 0;
+            return -1;
         }
-#if 1
+
         if (!lock_data()) {
             printf("lock data ok\n");
+            return 0;
         }
-#endif
     }
 
+	return -1;
+}
 
-	/*!
-	 *	*** VERIFY SUCCESSFUL COMPLETION OF THE PERSONALIZATION PROCESS ***
-	 **********************************************************************
-	 *
-	 * Check that all functions executed without errors and that the chip is actually locked.
-	 */	 
+uint8_t check_lock(void)
+{
+	static uint8_t sha204_lib_return = SHA204_SUCCESS;
+	static uint8_t transmit_buffer[SHA204_CMD_SIZE_MAX];
+	static uint8_t response_buffer[SHA204_RSP_SIZE_MAX]; 
+
+	struct sha204_write_parameters write_parameters;	
+	struct sha204_read_parameters read_parameters;
+	struct sha204_lock_parameters lock_parameters;
+
+    /* Check that all functions executed without errors and that the chip is actually locked */
 	 
-	//-----------tony comment:ATSHA204 side operate----------------------------
-	//tony comment: personalization step 9-----		
-	// Read lock bytes and verify successful lock
-	#if 0
 	read_parameters.tx_buffer = transmit_buffer;
 	read_parameters.rx_buffer = response_buffer;	
 	read_parameters.zone = SHA204_ZONE_CONFIG;
@@ -2578,11 +2605,8 @@ uint8_t atsha204_device_personalization(void)
 	sha204_lib_return |= sha204p_sleep();		
 	
 	sha204_lib_return |= response_buffer[3] /* LockValue */ & response_buffer[4] /* LockConfig */; 
-    printf("read ret = 0x%x\n", sha204_lib_return);
 
-	#endif
-
-	return 0;
+    return sha204_lib_return;
 }
 
 
@@ -3218,7 +3242,7 @@ void config_dump()
 
 
 
-int get_random(uint8_t key[32])
+int send_random_package(uint8_t key[32])
 {
     static uint8_t sha204_lib_return = SHA204_SUCCESS;
     struct sha204_random_parameters random_parameters;
@@ -3230,11 +3254,10 @@ int get_random(uint8_t key[32])
     random_parameters.mode = RANDOM_SEED_UPDATE;
 
     sha204_lib_return |= sha204m_random(&random_parameters);
-    if (response_buffer[SHA204_BUFFER_POS_COUNT] = 35) {
+    if (sha204_lib_return == SHA204_SUCCESS) {
         memcpy(key, &response_buffer[1], 32);
-        return SHA204_SUCCESS;
     }
-    return SHA204_COMM_FAIL;
+    return sha204_lib_return;
 }
 
 extern uint8_t SLOT_CONTENT[16][32];
@@ -3285,7 +3308,8 @@ int get_authentication(int key_id)
         close(f_i2c);
         return -1;
     }
-    //get_random(num_in);
+
+    send_random_package(num_in);
     sha204p_sleep();		
     
     //printf("keyid = %d\n", key_id);
@@ -3304,10 +3328,9 @@ int get_authentication(int key_id)
     return retval;
 }
 
-int roll_key(uint32_t cnt)
+int get_random(uint8_t data[32])
 {
     int retval;
-    uint8_t key[32];
     int i;
 
     if ( (f_i2c = open(ATSHA204_DRIVER_NAME, O_RDWR)) < 0) {
@@ -3326,17 +3349,12 @@ int roll_key(uint32_t cnt)
         close(f_i2c);
         return -1;
     }
-    for (i=0; i<cnt; i++) {
-        retval = get_random(key);
-        if (retval == SHA204_SUCCESS) {
-            printbuf(key, sizeof(key));
-            printf("\n");
-        }
-    }
+    retval = send_random_package(data);
     sha204p_sleep();		
     close(f_i2c);
-    return 0;
+    return retval;
 }
+
 int store_key(void)
 {
     int retval;
@@ -3359,52 +3377,4 @@ int store_key(void)
     close(f_i2c);
     return retval;
 }
-
-#if defined ANDROID
-#elif defined UNIX
-#endif
-
-
-
-#if 0
-int main(int argc, char **argv)
-{
-	int retval;
-    bool result;
-    int count = 1;
-    int i=0;
-    int errcnt = 0;
-    if (argc >= 2) {
-        if (!memcmp("store", argv[1], strlen(argv[1]))) {
-            printf("config and store key!\n");
-            retval = store_key();
-            printf("retval = %d\n", retval);
-        } else if (!memcmp("rollkey", argv[1], strlen(argv[1]))) {
-            printf("roll key!\n");
-            roll_key(1);
-        } else if (!memcmp("sn", argv[1], strlen(argv[1]))) {
-            printf("read sn!\n");
-            sha204_read_sn();
-        } else if (!memcmp("test", argv[1], strlen(argv[1]))) {
-            if (argc >= 3) {
-                count = strtol(argv[2], NULL, 10);
-                printf("test authentication %d times\n", count);
-            }
-            while (i < count) {
-                retval = get_authentication();
-                i++;
-                if (retval != 0) {
-                    errcnt ++;
-                }
-                printf("\rtest count %8d/%d err %d", i, count, errcnt);
-                fflush(stdout);
-                usleep(10);
-            }
-            printf("\n\n");
-        }
-        return 0;
-    }
-    return 0;
-}
-#endif
 
